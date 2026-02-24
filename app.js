@@ -8,13 +8,13 @@ const DB_KEY = 'fleet_monitor_db_v3';
 // CONFIGURAÇÃO DO FIREBASE (NUVEM)
 // Substitua pelos seus dados do console do Firebase se desejar
 const firebaseConfig = {
-    apiKey: "AIzaSyDummyKey_For_Setup",
-    authDomain: "monitoramento-frota-demo.firebaseapp.com",
-    databaseURL: "https://monitoramento-frota-demo-default-rtdb.firebaseio.com",
-    projectId: "monitoramento-frota-demo",
-    storageBucket: "monitoramento-frota-demo.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:abcdef"
+    apiKey: "AIzaSyBwBVdTfsGfveG1a5Z94UUIo9DgYu3qS4s",
+    authDomain: "controle-de-frota-b8c8c.firebaseapp.com",
+    databaseURL: "https://controle-de-frota-b8c8c-default-rtdb.firebaseio.com",
+    projectId: "controle-de-frota-b8c8c",
+    storageBucket: "controle-de-frota-b8c8c.firebasestorage.app",
+    messagingSenderId: "829635363225",
+    appId: "1:829635363225:web:86606bdea341f737ef5308"
 };
 
 // Inicializa Firebase apenas se não estiver inicializado
