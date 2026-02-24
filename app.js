@@ -17,11 +17,15 @@ const firebaseConfig = {
     appId: "1:829635363225:web:86606bdea341f737ef5308"
 };
 
+console.log("App: Iniciando carregamento do app.js");
+
 // Inicializa Firebase apenas se não estiver inicializado
 if (!firebase.apps.length) {
+    console.log("App: Inicializando Firebase...");
     firebase.initializeApp(firebaseConfig);
 }
 const db = firebase.database();
+console.log("App: Conexão com Firebase estabelecida.");
 
 class FleetManager {
     constructor() {
@@ -30,8 +34,11 @@ class FleetManager {
     }
 
     async init() {
-        return new Promise((resolve) => {
+        console.log("App: FleetManager.init() iniciado.");
+        return new Promise((resolve, reject) => {
+            console.log("App: Aguardando snapshot do Firebase...");
             this.dbRef.on('value', (snapshot) => {
+                console.log("App: Snapshot recebido do Firebase!");
                 const cloudData = snapshot.val();
                 if (cloudData) {
                     this.data = cloudData;
