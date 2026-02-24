@@ -23,6 +23,8 @@ if (!firebase.apps.length) {
 }
 const db = firebase.database();
 
+const LOGO_URL = "https://www.essencio.com.br/wp-content/uploads/2024/05/Essencio_principal-2024-1-1024x225.png";
+
 class FleetManager {
     constructor() {
         this.data = null;
@@ -240,15 +242,21 @@ const App = {
             return this.render(this.views.Login);
         }
 
-        root.innerHTML = view(props);
+        // Dashboard/Forms Header com Logo
+        const headerHtml = `
+            <div class="logo-container">
+                <img src="${LOGO_URL}" alt="Essencio" class="logo-main">
+            </div>
+        `;
+
+        root.innerHTML = headerHtml + view(props);
         window.scrollTo(0, 0);
     },
 
     views: {
         Login: () => `
-            <div class="auth-container slide-up">
-                <div class="auth-logo">🛥️</div>
-                <h1>Bem-vindo!</h1>
+            <div class="auth-container slide-up" style="text-align: center; margin-top: 20px">
+                <h1 style="font-size: 1.8rem">Bem-vindo!</h1>
                 <p style="color:var(--text-muted); margin-bottom: 30px">Por favor, selecione seu usuário para entrar.</p>
                 <div class="auth-card">
                     <div class="form-group">
@@ -268,14 +276,14 @@ const App = {
 
             return `
             <div class="container slide-up">
-                <header style="display:flex; justify-content:space-between; align-items:center">
+                <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px">
                     <div>
-                        <p style="color:var(--text-muted)">Olá, <strong>${user?.name}</strong></p>
-                        <h1>Controle de Abastecimento</h1>
+                        <p style="color:var(--text-muted); font-size: 0.9rem">Olá, <strong>${user?.name}</strong></p>
+                        <h2 style="margin:0">Controle de Frota</h2>
                     </div>
                     <div style="display:flex; gap: 8px; align-items: center">
-                        ${isAdmin ? `<button onclick="App.checkAdminAccess()" class="secondary" style="width:auto; padding:8px">⚙️ Admin</button>` : ''}
-                        <button onclick="App.logout()" class="logout-btn">Sair</button>
+                        ${isAdmin ? `<button onclick="App.checkAdminAccess()" class="secondary" style="width:auto; padding:10px; border-radius: 50%">⚙️</button>` : ''}
+                        <button onclick="App.logout()" class="secondary" style="width:auto; padding:10px; border-radius: 50%">🚪</button>
                     </div>
                 </header>
 
