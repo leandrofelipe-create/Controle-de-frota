@@ -405,8 +405,20 @@ const App = {
     },
 
     checkAdminAccess() {
-        const pass = prompt("Digite a senha de administrador:");
+        this.showModal(`
+            <h3>Acesso Administrativo</h3>
+            <div class="form-group">
+                <label>Senha</label>
+                <input type="password" id="admin-pass-input" placeholder="Digite a senha">
+            </div>
+            <button onclick="App.submitAdminPassword()">Entrar</button>
+        `);
+    },
+
+    submitAdminPassword() {
+        const pass = document.getElementById('admin-pass-input').value;
         if (pass === "Essencio123") {
+            this.closeModal();
             this.render(this.views.AdminPanel);
         } else {
             alert("Senha incorreta!");
@@ -446,9 +458,13 @@ const App = {
             container.innerHTML = `
                 <div class="card" style="background:#f8fafc; margin-bottom: 1.5rem">
                     <p style="font-size: 0.9rem; color: var(--text-muted)">
-                        <strong>${isBoat ? 'Horímetro' : 'Odômetro'} Atual:</strong> ${vehicle.lastVal || 0} ${isBoat ? 'h' : 'km'}
+                        <strong>Último registro (${isBoat ? 'Horas' : 'KM'}):</strong> ${vehicle.lastVal || 0}
                     </p>
-                    <p style="font-size: 0.75rem; color: var(--text-muted)">O valor será registrado automaticamente no abastecimento.</p>
+                </div>
+
+                <div class="form-group">
+                    <label>${isBoat ? 'Horímetro' : 'Odômetro'} no Abastecimento</label>
+                    <input type="number" step="0.01" id="fuel-val" value="${vehicle.lastVal || 0}">
                 </div>
 
                 <div class="form-group">
@@ -485,7 +501,7 @@ const App = {
                     <label style="margin:0">Encheu o tanque?</label>
                 </div>
 
-                <button onclick="App.submitFuel()">Salvar Abastecimento</button>
+                <button id="btn-submit-fuel" onclick="App.submitFuel()">Salvar Abastecimento</button>
             `;
         }
     },
@@ -551,77 +567,118 @@ const App = {
 
     async submitCheckOut() {
         const session = manager.data.currentSession;
+        if (!session) return alert("Sessão não encontrada!");
+
         const vehicle = manager.data.vehicles.find(v => v.id == session.vehicleId);
+        if (!vehicle) return alert("Veículo não encontrado!");
 
         let val;
         if (vehicle.type === 'boat') {
-            val = (vehicle.lastVal || 0) + 1.5;
+            const now = new Date();
+            const start = new Date(session.startTime);
+            const hoursDiff = (now - start) / (1000 * 60 * 60);
+            val = (parseFloat(session.startVal) || 0) + parseFloat(hoursDiff.toFixed(2));
         } else {
             val = parseFloat(document.getElementById('end-val').value);
-            if (isNaN(val)) return alert("Preencha o valor!");
-        }
+            if (isNaN(val)) return alert("Preencha o valor final!");
 
-        if (!this.currentPhoto) return alert("Tire a foto!");
-
-        if (vehicle.type !== 'boat') {
             const validation = manager.validateKM(session.vehicleId, val);
             if (!validation.ok) return alert(validation.msg);
         }
 
-        const log = {
-            ...session,
-            endTime: new Date().toISOString(),
-            endVal: val,
-            sessionDiff: (val - session.startVal).toFixed(2), // Métrica calculada
-            endPhoto: this.currentPhoto
-        };
-        manager.data.usageLogs.push(log);
+        if (!this.currentPhoto) return alert("Tire a foto do painel final!");
 
-        const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-        if (v) v.lastVal = val;
+        const btn = event.target;
+        btn.disabled = true;
+        btn.innerText = "Salvando...";
 
-        manager.data.currentSession = null;
-        await manager.saveData();
-        this.currentPhoto = null;
-        this.render(this.views.Dashboard);
+        try {
+            const log = {
+                id: Date.now(),
+                ...session,
+                endTime: new Date().toISOString(),
+                endVal: val,
+                sessionDiff: (val - session.startVal).toFixed(2),
+                endPhoto: this.currentPhoto
+            };
+
+            manager.data.usageLogs.push(log);
+
+            // Atualiza o último valor do veículo
+            const vIndex = manager.data.vehicles.findIndex(v => v.id == session.vehicleId);
+            if (vIndex !== -1) manager.data.vehicles[vIndex].lastVal = val;
+
+            manager.data.currentSession = null;
+            await manager.saveData();
+            this.currentPhoto = null;
+            this.render(this.views.Dashboard);
+        } catch (e) {
+            alert("Erro ao salvar: " + e.message);
+            btn.disabled = false;
+            btn.innerText = "Finalizar e Salvar";
+        }
     },
 
     async submitFuel() {
         const vId = document.getElementById('fuel-vehicle-select').value;
         const vehicle = manager.data.vehicles.find(v => v.id == vId);
+        if (!vehicle) return alert("Selecione o veículo!");
 
-        // Busca automaticamente do sistema
-        const val = vehicle.lastVal || 0;
-
+        const val = parseFloat(document.getElementById('fuel-val').value);
         const liters = parseFloat(document.getElementById('fuel-liters').value);
         const priceL = parseFloat(document.getElementById('fuel-price-l').value);
         const total = parseFloat(document.getElementById('fuel-total').value);
         const type = document.getElementById('fuel-type').value;
         const isFull = document.getElementById('fuel-full').checked;
 
-        if (isNaN(liters) || !this.currentPhoto) return alert("Preencha todos os dados e tire a foto!");
+        if (isNaN(val)) return alert("Preencha o KM/Horas!");
+        if (isNaN(liters)) return alert("Preencha os litros!");
+        if (!this.currentPhoto) return alert("Tire a foto do comprovante!");
 
-        const log = {
-            id: Date.now(),
-            driverId: manager.data.currentUser,
-            vehicleId: vId,
-            date: new Date().toISOString(),
-            val: val,
-            liters,
-            pricePerLiter: priceL,
-            total: total.toFixed(2),
-            fuelType: type,
-            isFull,
-            photo: this.currentPhoto
-        };
+        if (vehicle.type !== 'boat') {
+            const validation = manager.validateKM(vId, val);
+            // Relaxamos a validação se for abastecimento (poderia ser um registro retroativo ou ajuste)
+            // Mas mantemos aviso se for menor que o anterior
+            if (val < (vehicle.lastVal || 0)) {
+                if (!confirm(`O valor inserido (${val}) é menor que o último registro (${vehicle.lastVal}). Deseja continuar?`)) return;
+            }
+        }
 
-        const v = manager.data.vehicles.find(v => v.id == vId);
-        if (v && isFull) v.lastVal = val;
+        const btn = document.getElementById('btn-submit-fuel');
+        btn.disabled = true;
+        btn.innerText = "Salvando...";
 
-        manager.data.fuelLogs.push(log);
-        await manager.saveData();
-        this.currentPhoto = null;
-        this.render(this.views.Dashboard);
+        try {
+            const log = {
+                id: Date.now(),
+                driverId: manager.data.currentUser,
+                vehicleId: vId,
+                date: new Date().toISOString(),
+                val: val,
+                liters,
+                pricePerLiter: priceL,
+                total: total.toFixed(2),
+                fuelType: type,
+                isFull,
+                photo: this.currentPhoto
+            };
+
+            manager.data.fuelLogs.push(log);
+
+            // Se encheu o tanque ou se o valor for maior que o atual, atualiza o veículo
+            if (isFull || val > (vehicle.lastVal || 0)) {
+                const vIndex = manager.data.vehicles.findIndex(v => v.id == vId);
+                if (vIndex !== -1) manager.data.vehicles[vIndex].lastVal = val;
+            }
+
+            await manager.saveData();
+            this.currentPhoto = null;
+            this.render(this.views.Dashboard);
+        } catch (e) {
+            alert("Erro ao salvar abastecimento: " + e.message);
+            btn.disabled = false;
+            btn.innerText = "Salvar Abastecimento";
+        }
     },
 
     // --- Admin Views ---
