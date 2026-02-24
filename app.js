@@ -57,9 +57,13 @@ class FleetManager {
                 // Backup local para rapidez no app
                 localStorage.setItem(DB_KEY, JSON.stringify(this.data));
 
-                // Se o App já estiver rodando, re-renderiza a view atual
-                if (window.App && window.App.currentView) {
-                    window.App.render(window.App.currentView);
+                // Dispara a renderização inicial ou atualização
+                if (window.App) {
+                    if (window.App.currentView) {
+                        window.App.render(window.App.currentView, window.App.currentProps);
+                    } else {
+                        window.App.render(window.App.views.Login);
+                    }
                 }
 
                 resolve(this.data);
