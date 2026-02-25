@@ -168,7 +168,10 @@ const App = {
                 }
                     <button class="secondary" onclick="App.render(App.views.FuelLog)">⛽ Registrar Abastecimento</button>
                     ${isAdmin ? `<button class="secondary" onclick="App.render(App.views.AdminPanel)">📊 Painel do Gestor</button>` : ''}
-                    <button class="secondary" onclick="App.init()" style="font-size: 0.7rem; opacity: 0.5">🔄 Sincronizar</button>
+                    <div style="display:flex; gap:10px; margin-top:10px">
+                        <button class="secondary btn-small" onclick="App.render(App.views.ChangePassword)" style="flex:1; font-size:0.75rem">🔐 Alterar Senha</button>
+                        <button class="secondary btn-small" onclick="App.init()" style="flex:1; font-size:0.75rem">🔄 Sincronizar</button>
+                    </div>
                 </div>
             </div>
         `},
@@ -222,6 +225,19 @@ const App = {
                 <div id="admin-content" class="admin-list">${App.renderAdminLogs()}</div>
                 <button class="secondary" style="margin-top:20px" onclick="manager.exportExcel()">📊 Exportar Excel</button>
             </div>
+        `,
+        ChangePassword: () => `
+            <div class="container slide-up">
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Alterar Senha</h1>
+                <div class="card">
+                    <div class="form-group">
+                        <label>Nova Senha</label>
+                        <input type="password" id="new-self-pass" placeholder="Mínimo 4 caracteres">
+                    </div>
+                    <button onclick="App.submitChangePassword()">Salvar Nova Senha</button>
+                </div>
+            </div>
         `
     },
 
@@ -239,7 +255,19 @@ const App = {
     },
 
     logout() {
-        if (confirm("Sair?")) { manager.data.currentUser = null; manager.saveData(); App.render(App.views.Login); }
+        if (confirm("Sair?")) { manager.data.currentUser = null; App.render(App.views.Login); }
+    },
+
+    async submitChangePassword() {
+        const newPass = document.getElementById('new-self-pass').value;
+        if (newPass.length < 4) return alert("Senha muito curta!");
+        const uIdx = manager.data.drivers.findIndex(d => d.id == manager.data.currentUser);
+        if (uIdx !== -1) {
+            manager.data.drivers[uIdx].password = newPass;
+            await manager.saveData();
+            alert("Senha alterada com sucesso!");
+            App.render(App.views.Dashboard);
+        }
     },
 
     checkAdminAccess() {
