@@ -74,7 +74,7 @@ class FleetManager {
 
     async addVehicle(v) { v.id = Date.now(); this.data.vehicles.push(v); await this.saveData(); }
     async deleteVehicle(id) { this.data.vehicles = this.data.vehicles.filter(v => v.id != id); await this.saveData(); }
-    async addDriver(name) { this.data.drivers.push({ id: Date.now(), name, isAdmin: false }); await this.saveData(); }
+    async addDriver(name, password) { this.data.drivers.push({ id: Date.now(), name, password: password || 'Essencio123', isAdmin: false }); await this.saveData(); }
     async deleteDriver(id) { this.data.drivers = this.data.drivers.filter(d => d.id != id); await this.saveData(); }
 
     simulateAIScan() {
@@ -228,8 +228,10 @@ const App = {
     login() {
         const id = document.getElementById('login-driver-select').value;
         const pass = document.getElementById('login-pass-input').value;
+        const user = manager.data.drivers.find(d => d.id == id);
 
-        if (pass !== "Essencio123") return alert("Senha de acesso incorreta!");
+        const userPass = user?.password || 'Essencio123';
+        if (pass !== userPass) return alert("Senha de acesso incorreta para este usuário!");
 
         manager.data.currentUser = id;
         manager.saveData();
@@ -390,8 +392,23 @@ const App = {
 
     renderAdminDrivers() {
         let h = "<h4>Novo Usuário</h4>";
-        h += `<input id="new-d-name" placeholder="Nome"><button onclick="App.submitAddDriver()" class="btn-small">Add</button><h4>Usuários</h4>`;
-        h += manager.data.drivers.map(d => `<div class="admin-item"><span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span> <div style="display:flex; gap:5px"><button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})" style="font-size:0.7rem">Usuário / Adm</button><button class="danger btn-small" onclick="App.deleteDriver(${d.id})" style="width:35px">🗑️</button></div></div>`).join('');
+        h += `
+            <div style="display:grid; gap:5px; margin-bottom:15px">
+                <input id="new-d-name" placeholder="Nome Completo">
+                <input type="password" id="new-d-pass" placeholder="Senha Inicial">
+                <button onclick="App.submitAddDriver()" class="btn-small">Adicionar Usuário</button>
+            </div>
+            <h4>Usuários Cadastrados</h4>
+        `;
+        h += manager.data.drivers.map(d => `
+            <div class="admin-item">
+                <span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span>
+                <div style="display:flex; gap:5px">
+                    <button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})" style="font-size:0.7rem">Usuário / Adm</button>
+                    <button class="danger btn-small" onclick="App.deleteDriver(${d.id})" style="width:35px; cursor:pointer" title="Excluir">🗑️</button>
+                </div>
+            </div>
+        `).join('');
         return h;
     },
 
@@ -405,8 +422,9 @@ const App = {
 
     async submitAddDriver() {
         const name = document.getElementById('new-d-name').value;
+        const pass = document.getElementById('new-d-pass').value;
         if (!name) return alert("Digite o nome");
-        await manager.addDriver(name);
+        await manager.addDriver(name, pass);
         App.switchAdminTab('drivers');
     },
 
