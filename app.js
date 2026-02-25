@@ -16,7 +16,6 @@ const firebaseConfig = {
     appId: "1:829635363225:web:86606bdea341f737ef5308"
 };
 
-// Inicializa Firebase apenas se não estiver inicializado
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
@@ -41,13 +40,13 @@ class FleetManager {
                 } else {
                     this.data = {
                         vehicles: [
-                            { id: 1, name: 'Hilux - ABC-1234', plate: 'ABC-1234', model: 'Toyota Hilux', type: 'car', defaultFuel: 'Diesel S10', lastVal: 15200 },
-                            { id: 2, name: 'Barco Turbo', plate: 'BRA-9988', model: 'Lancha 24ft', type: 'boat', defaultFuel: 'Gasolina', lastVal: 450 }
+                            { id: 1, name: 'Hilux - ABC-1234', type: 'car', lastVal: 15200 },
+                            { id: 2, name: 'Barco Turbo', type: 'boat', lastVal: 450 }
                         ],
                         drivers: [
                             { id: 1, name: 'João Silva' },
                             { id: 2, name: 'Maria Santos' },
-                            { id: 3, name: 'Leandro Felipe' }
+                            { id: 3, name: 'Leandro Felipe', isAdmin: true }
                         ],
                         usageLogs: [],
                         fuelLogs: [],
@@ -73,84 +72,36 @@ class FleetManager {
         return this.dbRef.set(this.data);
     }
 
-    async addVehicle(vehicle) {
-        vehicle.id = Date.now();
-        this.data.vehicles.push(vehicle);
-        await this.saveData();
-    }
-
-    async deleteVehicle(id) {
-        this.data.vehicles = this.data.vehicles.filter(v => v.id != id);
-        await this.saveData();
-    }
-
-    async addDriver(name) {
-        this.data.drivers.push({ id: Date.now(), name });
-        await this.saveData();
-    }
-
-    async deleteDriver(id) {
-        this.data.drivers = this.data.drivers.filter(d => d.id != id);
-        await this.saveData();
-    }
-
-    async updateFuelLog(id, newData) {
-        const index = this.data.fuelLogs.findIndex(l => l.id == id);
-        if (index !== -1) {
-            this.data.fuelLogs[index] = { ...this.data.fuelLogs[index], ...newData };
-            await this.saveData();
-        }
-    }
-
-    validateKM(vehicleId, currentVal) {
-        const vehicle = this.data.vehicles.find(v => v.id == vehicleId);
-        if (!vehicle) return { ok: true };
-        const lastVal = vehicle.lastVal || 0;
-        if (currentVal < lastVal) return { ok: false, msg: `Valor (${currentVal}) é menor que o último registro (${lastVal}).` };
-        if (currentVal > lastVal + 2000) return { ok: false, msg: `Salto muito grande detectado.` };
-        return { ok: true };
-    }
+    async addVehicle(v) { v.id = Date.now(); this.data.vehicles.push(v); await this.saveData(); }
+    async deleteVehicle(id) { this.data.vehicles = this.data.vehicles.filter(v => v.id != id); await this.saveData(); }
+    async addDriver(name) { this.data.drivers.push({ id: Date.now(), name, isAdmin: false }); await this.saveData(); }
+    async deleteDriver(id) { this.data.drivers = this.data.drivers.filter(d => d.id != id); await this.saveData(); }
 
     simulateAIScan() {
         return new Promise(resolve => {
             setTimeout(() => {
                 const liters = (Math.random() * 50 + 10).toFixed(2);
                 const pricePerLiter = (Math.random() * 2 + 5).toFixed(2);
-                resolve({
-                    liters: liters,
-                    pricePerLiter: pricePerLiter,
-                    total: (liters * pricePerLiter).toFixed(2)
-                });
-            }, 1500);
+                resolve({ liters, pricePerLiter, total: (liters * pricePerLiter).toFixed(2) });
+            }, 1000);
         });
     }
 
     exportExcel() {
-        // ... (Export code kept as is for brevity, functional but omitted for space if needed)
-        const fuelData = this.data.fuelLogs.map((l, index) => {
-            const vehicle = this.data.vehicles.find(v => v.id == l.vehicleId);
-            const driver = this.data.drivers.find(d => d.id == l.driverId);
-            let consumption = "N/A";
-            if (l.isFull && vehicle) {
-                const previousFull = this.data.fuelLogs.slice(0, index).reverse().find(log => log.vehicleId == l.vehicleId && log.isFull);
-                if (previousFull) {
-                    const diffVal = l.val - previousFull.val;
-                    if (diffVal > 0) consumption = vehicle.type === 'car' ? (diffVal / l.liters).toFixed(2) + " km/L" : (l.liters / diffVal).toFixed(2) + " L/h";
-                }
-            }
-            return { "ID": l.id, "Data": new Date(l.date).toLocaleString(), "Veículo": vehicle?.name, "KM/Horas": l.val, "Litros": l.liters, "Média": consumption };
+        const fuelData = (this.data.fuelLogs || []).map(l => {
+            const v = this.data.vehicles.find(v => v.id == l.vehicleId);
+            const d = this.data.drivers.find(d => d.id == l.driverId);
+            return { "Data": new Date(l.date).toLocaleString(), "Veículo": v?.name, "Motorista": d?.name, "KM/Horas": l.val, "Litros": l.liters, "Total R$": l.total };
         });
-        const usageData = this.data.usageLogs.flatMap(l => {
-            const vehicle = this.data.vehicles.find(v => v.id == l.vehicleId);
-            return [
-                { "ID": l.id, "Data": new Date(l.startTime).toLocaleString(), "Tipo": "Check-In", "Valor": l.startVal },
-                { "ID": l.id, "Data": new Date(l.endTime).toLocaleString(), "Tipo": "Check-Out", "Valor": l.endVal }
-            ];
+        const usageData = (this.data.usageLogs || []).map(l => {
+            const v = this.data.vehicles.find(v => v.id == l.vehicleId);
+            const d = this.data.drivers.find(d => d.id == l.driverId);
+            return { "Veículo": v?.name, "Motorista": d?.name, "Início": new Date(l.startTime).toLocaleString(), "Fim": new Date(l.endTime).toLocaleString(), "KM/h Percorrido": l.sessionDiff };
         });
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(fuelData), "Abastecimentos");
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(usageData), "Uso");
-        XLSX.writeFile(workbook, "relatorio_frota.xlsx");
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fuelData), "Abastecimentos");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usageData), "Uso");
+        XLSX.writeFile(wb, "Controle_Frota_Essencio.xlsx");
     }
 }
 
@@ -161,25 +112,20 @@ const App = {
     currentView: null,
     currentProps: {},
 
-    async init() {
-        await manager.init();
-    },
+    async init() { await manager.init(); },
 
     render(view, props = {}) {
         App.currentView = view;
         App.currentProps = props;
         const root = document.getElementById('app');
-        if (!manager.data) {
-            root.innerHTML = `<div class="loading-screen"><div class="spinner"></div><p>Conectando...</p></div>`;
-            return;
-        }
+        if (!manager.data) return;
         if (!manager.data.currentUser && view !== App.views.Login) return App.render(App.views.Login);
 
         const user = manager.data.drivers.find(d => d.id == manager.data.currentUser);
         const headerHtml = `
             <div class="logo-container">
-                <img src="${LOGO_URL}" alt="Essencio" class="logo-main">
-                ${user ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 5px">${user.name} ${user.isAdmin ? '(Admin)' : ''}</div>` : ''}
+                <img src="${LOGO_URL}" alt="Essencio" class="logo-main" onclick="App.render(App.views.Dashboard)" style="cursor:pointer">
+                ${user ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 5px">${user.name} ${user.isAdmin || user.name === 'Leandro Felipe' ? '(Administrador)' : ''}</div>` : ''}
             </div>
         `;
         root.innerHTML = headerHtml + view(props);
@@ -210,7 +156,7 @@ const App = {
                         <h2 style="margin:0">Dashboard</h2>
                     </div>
                     <div style="display:flex; gap: 8px">
-                        ${isAdmin ? `<button onclick="App.checkAdminAccess()" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>` : ''}
+                        ${isAdmin ? `<button onclick="App.render(App.views.AdminPanel)" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>` : `<button onclick="App.checkAdminAccess()" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>`}
                         <button onclick="App.logout()" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">🚪</button>
                     </div>
                 </header>
@@ -220,7 +166,7 @@ const App = {
                     `<button onclick="App.render(App.views.CheckIn)">Iniciar Check-in</button>`
                 }
                     <button class="secondary" onclick="App.render(App.views.FuelLog)">⛽ Registrar Abastecimento</button>
-                    ${isAdmin ? `<button class="secondary" onclick="App.render(App.views.AdminPanel)">⚙️ Painel do Gestor</button>` : ''}
+                    ${isAdmin ? `<button class="secondary" onclick="App.render(App.views.AdminPanel)">📊 Painel do Gestor</button>` : ''}
                     <button class="secondary" onclick="App.init()" style="font-size: 0.7rem; opacity: 0.5">🔄 Sincronizar</button>
                 </div>
             </div>
@@ -244,12 +190,12 @@ const App = {
                 <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
                 <h1>Check-out</h1>
                 <p>Veículo: <strong>${vehicle.name}</strong></p>
-                <p style="font-size: 0.9rem; color: var(--accent); margin-bottom: 10px">
-                    Último registro: <strong>${session.startVal}</strong> ${vehicle.type === 'boat' ? 'horas' : 'km'}
-                </p>
-                ${vehicle.type === 'boat' ? '<p>Horas calculadas automaticamente na finalização.</p>' : '<div class="form-group"><label>KM Final</label><input type="number" id="end-val" placeholder="Valor atual"></div>'}
-                <div class="photo-preview" id="photo-preview" onclick="App.takePhoto()"><span>Clique p/ Foto Painel</span></div>
-                <button class="danger" onclick="App.submitCheckOut(event)">Finalizar e Salvar</button>
+                <div class="card" style="background: rgba(0,188,193,0.1); margin-bottom: 20px; border: 1px solid var(--accent)">
+                    <p style="margin:0; font-size: 0.9rem">Início: <strong>${session.startVal}</strong></p>
+                </div>
+                ${vehicle.type === 'boat' ? '<p style="font-size:0.8rem">Horas calculadas automaticamente.</p>' : '<div class="form-group"><label>KM Final</label><input type="number" id="end-val" placeholder="KM Atual"></div>'}
+                <div class="photo-preview" id="photo-preview" onclick="App.takePhoto()"><span>Foto Painel</span></div>
+                <button class="danger" id="btn-checkout" onclick="App.submitCheckOut(event)">Finalizar e Salvar</button>
             </div>
         `},
         FuelLog: () => `
@@ -266,11 +212,11 @@ const App = {
         AdminPanel: () => `
             <div class="container slide-up">
                 <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
-                <h1>Admin</h1>
-                <div class="admin-tabs" style="display:flex; gap:10px; margin-bottom:15px">
-                    <button class="tab-btn active" onclick="App.switchAdminTab('logs')">Logs</button>
-                    <button class="tab-btn" onclick="App.switchAdminTab('vehicles')">Veículos</button>
-                    <button class="tab-btn" onclick="App.switchAdminTab('drivers')">Usuários</button>
+                <h1>Painel Admin</h1>
+                <div class="admin-tabs" style="display:flex; gap:5px; margin-bottom:15px">
+                    <button class="tab-btn active btn-small" onclick="App.switchAdminTab('logs')">Logs</button>
+                    <button class="tab-btn btn-small" onclick="App.switchAdminTab('vehicles')">Veículos</button>
+                    <button class="tab-btn btn-small" onclick="App.switchAdminTab('drivers')">Usuários</button>
                 </div>
                 <div id="admin-content" class="admin-list">${App.renderAdminLogs()}</div>
                 <button class="secondary" style="margin-top:20px" onclick="manager.exportExcel()">📊 Exportar Excel</button>
@@ -278,23 +224,19 @@ const App = {
         `
     },
 
-    async login() {
+    login() {
         manager.data.currentUser = document.getElementById('login-driver-select').value;
-        await manager.saveData();
+        manager.saveData();
         App.render(App.views.Dashboard);
     },
 
-    async logout() {
-        if (confirm("Sair?")) {
-            manager.data.currentUser = null;
-            await manager.saveData();
-            App.render(App.views.Login);
-        }
+    logout() {
+        if (confirm("Sair?")) { manager.data.currentUser = null; manager.saveData(); App.render(App.views.Login); }
     },
 
     checkAdminAccess() {
         App.showModal(`
-            <h3>Acesso Admin</h3>
+            <h3>Acesso Restrito</h3>
             <input type="password" id="admin-pass-input" placeholder="Senha">
             <button onclick="App.submitAdminPassword()" style="margin-top:10px">Entrar</button>
         `);
@@ -304,7 +246,7 @@ const App = {
         if (document.getElementById('admin-pass-input').value === "Essencio123") {
             App.closeModal();
             App.render(App.views.AdminPanel);
-        } else alert("Incorreta!");
+        } else alert("Senha incorreta!");
     },
 
     handleVehicleChange(vId, targetId) {
@@ -312,34 +254,31 @@ const App = {
         const container = document.getElementById(targetId);
         if (!vehicle) return;
 
-        const lastValLabel = `<p style="font-size: 0.85rem; color: var(--accent); margin-bottom: 10px">
-            Último registro: <strong>${vehicle.lastVal || 0}</strong> ${vehicle.type === 'boat' ? 'horas' : 'km'}
-        </p>`;
+        const lastValLabel = `
+            <div class="card" style="background: rgba(0,188,193,0.1); margin-bottom: 15px; border: 1px solid var(--accent)">
+                <p style="margin:0; font-size: 0.9rem">Último Registro: <strong>${vehicle.lastVal || 0}</strong> ${vehicle.type === 'boat' ? 'horas' : 'km'}</p>
+            </div>
+        `;
 
         if (targetId === 'checkin-fields') {
             container.innerHTML = `
                 ${lastValLabel}
-                ${vehicle.type === 'car' ? '<div class="form-group"><label>KM Inicial</label><input type="number" id="start-val" placeholder="0.0"></div>' : ''}
+                ${vehicle.type === 'car' ? '<div class="form-group"><label>KM Inicial</label><input type="number" id="start-val" value="${vehicle.lastVal || 0}"></div>' : ''}
                 <div class="photo-preview" id="photo-preview" onclick="App.takePhoto()"><span>Foto Painel</span></div>
                 <button onclick="App.submitCheckIn()">Iniciar</button>
             `;
         } else {
             container.innerHTML = `
                 ${lastValLabel}
-                <div class="form-group">
-                    <label>${vehicle.type === 'boat' ? 'Horímetro' : 'Odômetro'} Atual</label>
-                    <input type="number" id="fuel-val" value="${vehicle.lastVal || 0}">
-                </div>
+                <div class="form-group"><label>KM/Horas Atual</label><input type="number" id="fuel-val" value="${vehicle.lastVal || 0}"></div>
                 <div id="ai-status"></div>
                 <div class="photo-preview" id="photo-preview" onclick="App.processReceiptIA()"><span>Foto Comprovante (IA)</span></div>
-                <div style="display:flex; gap:10px">
-                    <div class="form-group"><label>Litros</label><input type="number" step="0.01" id="fuel-liters" placeholder="0.00" oninput="App.calcFuelTotal()"></div>
-                    <div class="form-group"><label>R$/L</label><input type="number" step="0.01" id="fuel-price-l" placeholder="0.00" oninput="App.calcFuelTotal()"></div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px">
+                    <div class="form-group"><label>Litros</label><input type="number" step="0.01" id="fuel-liters" oninput="App.calcFuelTotal()"></div>
+                    <div class="form-group"><label>R$/L</label><input type="number" step="0.01" id="fuel-price-l" oninput="App.calcFuelTotal()"></div>
                 </div>
-                <div class="form-group"><label>Total R$</label><input type="number" step="0.01" id="fuel-total" placeholder="0.00"></div>
-                <div style="display:flex; align-items:center; gap:8px; margin:10px 0">
-                    <input type="checkbox" id="fuel-full"> <label>Tanque Cheio?</label>
-                </div>
+                <div class="form-group"><label>Total R$</label><input type="number" id="fuel-total"></div>
+                <label style="display:flex; align-items:center; gap:5px; margin-bottom:15px"><input type="checkbox" id="fuel-full"> Tanque Cheio?</label>
                 <button onclick="App.submitFuel()">Salvar Abastecimento</button>
             `;
         }
@@ -347,16 +286,13 @@ const App = {
 
     async processReceiptIA() {
         App.takePhoto();
-        const status = document.getElementById('ai-status');
-        if (status) status.innerHTML = `<div class="ai-processing" style="padding:10px; background: rgba(0,188,193,0.1); border-radius:10px; margin-bottom:10px">Interpretando comprovante...</div>`;
-
+        const s = document.getElementById('ai-status');
+        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--accent)'>Interpretando comprovante...</p>";
         const data = await manager.simulateAIScan();
-
-        if (document.getElementById('fuel-liters')) document.getElementById('fuel-liters').value = data.liters;
-        if (document.getElementById('fuel-price-l')) document.getElementById('fuel-price-l').value = data.pricePerLiter;
-        if (document.getElementById('fuel-total')) document.getElementById('fuel-total').value = data.total;
-
-        if (status) status.innerHTML = `<div style="color:var(--success); font-size: 0.8rem; margin-bottom:10px">✓ Dados extraídos via IA!</div>`;
+        document.getElementById('fuel-liters').value = data.liters;
+        document.getElementById('fuel-price-l').value = data.pricePerLiter;
+        document.getElementById('fuel-total').value = data.total;
+        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--success)'>✓ Dados extraídos!</p>";
     },
 
     calcFuelTotal() {
@@ -375,7 +311,7 @@ const App = {
         const vId = document.getElementById('vehicle-select').value;
         const vehicle = manager.data.vehicles.find(v => v.id == vId);
         const val = vehicle.type === 'boat' ? vehicle.lastVal : parseFloat(document.getElementById('start-val').value);
-        if (!App.currentPhoto || (vehicle.type === 'car' && isNaN(val))) return alert("Dados incompletos!");
+        if (!App.currentPhoto || isNaN(val)) return alert("Dados incompletos!");
         manager.data.currentSession = { id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, startTime: new Date().toISOString(), startVal: val, startPhoto: App.currentPhoto };
         await manager.saveData();
         App.currentPhoto = null;
@@ -390,10 +326,13 @@ const App = {
             const diff = (new Date() - new Date(session.startTime)) / 3600000;
             val = (parseFloat(session.startVal) || 0) + parseFloat(diff.toFixed(2));
         } else val = parseFloat(document.getElementById('end-val').value);
-        if (isNaN(val) || !App.currentPhoto) return alert("Dados incompletos!");
-        const btn = event.target;
+
+        if (isNaN(val) || !App.currentPhoto) return alert("Preencha o KM e tire a foto!");
+
+        const btn = document.getElementById('btn-checkout') || event.target;
         btn.disabled = true;
         btn.innerText = "Salvando...";
+
         try {
             manager.data.usageLogs.push({ ...session, id: Date.now(), endTime: new Date().toISOString(), endVal: val, sessionDiff: (val - session.startVal).toFixed(2), endPhoto: App.currentPhoto });
             const vIdx = manager.data.vehicles.findIndex(v => v.id == session.vehicleId);
@@ -402,19 +341,19 @@ const App = {
             await manager.saveData();
             App.currentPhoto = null;
             App.render(App.views.Dashboard);
-        } catch (e) { alert(e.message); btn.disabled = false; }
+        } catch (e) { alert(e.message); btn.disabled = false; btn.innerText = "Finalizar e Salvar"; }
     },
 
     async submitFuel() {
         const vId = document.getElementById('fuel-vehicle-select').value;
         const val = parseFloat(document.getElementById('fuel-val').value);
         const liters = parseFloat(document.getElementById('fuel-liters').value);
-        const total = parseFloat(document.getElementById('fuel-total').value);
+        const total = document.getElementById('fuel-total').value;
         if (isNaN(val) || isNaN(liters) || !App.currentPhoto) return alert("Preencha tudo!");
         try {
-            manager.data.fuelLogs.push({ id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total: total.toFixed(2), isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
+            manager.data.fuelLogs.push({ id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total, isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
             const vIdx = manager.data.vehicles.findIndex(v => v.id == vId);
-            if (document.getElementById('fuel-full').checked || val > (manager.data.vehicles[vIdx].lastVal || 0)) manager.data.vehicles[vIdx].lastVal = val;
+            if (val > (manager.data.vehicles[vIdx].lastVal || 0)) manager.data.vehicles[vIdx].lastVal = val;
             await manager.saveData();
             App.currentPhoto = null;
             App.render(App.views.Dashboard);
@@ -424,116 +363,52 @@ const App = {
     renderAdminLogs() {
         const fuel = (manager.data.fuelLogs || []).slice().reverse();
         const usage = (manager.data.usageLogs || []).slice().reverse();
-
-        let h = "<h4>Últimos Abastecimentos</h4>";
-        h += fuel.length ? fuel.map(l => {
+        let h = "<h4>Últimos Logs</h4>";
+        h += fuel.map(l => {
             const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
-            const d = manager.data.drivers.find(d => d.id == l.driverId);
-            return `<div class="admin-item" style="flex-direction:column; align-items:flex-start">
-                <div style="display:flex; justify-content:space-between; width:100%">
-                    <strong style="color:var(--accent)">${v?.name || 'V-Desconhecido'}</strong>
-                    <span style="font-size:0.7rem">${new Date(l.date).toLocaleDateString()}</span>
-                </div>
-                <div style="font-size:0.8rem">${d?.name || 'Motorista'} - ${l.liters}L - R$ ${l.total}</div>
-            </div>`;
-        }).join('') : "<p style='font-size:0.8rem; opacity:0.5'>Sem registros.</p>";
-
-        h += "<h4 style='margin-top:20px'>Últimos Usos (Check-in/out)</h4>";
-        h += usage.length ? usage.map(l => {
+            return `<div class="admin-item" style="font-size:0.8rem">⛽ ${v?.name}: ${l.liters}L - R$ ${l.total}</div>`;
+        }).join('');
+        h += usage.map(l => {
             const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
-            const d = manager.data.drivers.find(d => d.id == l.driverId);
-            return `<div class="admin-item" style="flex-direction:column; align-items:flex-start">
-                <div style="display:flex; justify-content:space-between; width:100%">
-                    <strong style="color:var(--accent)">${v?.name || 'V-Desconhecido'}</strong>
-                    <span style="font-size:0.7rem">${new Date(l.endTime).toLocaleDateString()}</span>
-                </div>
-                <div style="font-size:0.8rem">${d?.name || 'Motorista'} - ${l.sessionDiff} ${v?.type === 'boat' ? 'h' : 'km'}</div>
-            </div>`;
-        }).join('') : "<p style='font-size:0.8rem; opacity:0.5'>Sem registros.</p>";
-
+            return `<div class="admin-item" style="font-size:0.8rem">🚗 ${v?.name}: ${l.sessionDiff} percorrido</div>`;
+        }).join('');
         return h;
     },
 
     renderAdminVehicles() {
-        let h = `
-            <div style="margin-bottom:20px; padding:15px; background: rgba(255,255,255,0.05); border-radius:15px">
-                <h4 style="margin-top:0">Novo Veículo</h4>
-                <div class="form-group"><input type="text" id="new-v-name" placeholder="Nome/Placa"></div>
-                <div class="form-group">
-                    <select id="new-v-type">
-                        <option value="car">Carro / Hilux</option>
-                        <option value="boat">Barco / Lancha</option>
-                    </select>
-                </div>
-                <button onclick="App.submitAddVehicle()" class="btn-small">Cadastrar Veículo</button>
-            </div>
-            <h4>Frota Cadastrada</h4>
-        `;
-        h += manager.data.vehicles.map(v => `
-            <div class="admin-item">
-                <span><strong>${v.name}</strong> (${v.type === 'boat' ? 'Barco' : 'Carro'})</span>
-                <button class="danger btn-small" style="width:auto; padding:5px 10px" onclick="App.deleteVehicle(${v.id})">Excluir</button>
-            </div>
-        `).join('');
+        let h = "<h4>Novo Veículo</h4>";
+        h += `<input id="new-v-name" placeholder="Nome"><select id="new-v-type"><option value='car'>Carro</option><option value='boat'>Barco</option></select><button onclick="App.submitAddVehicle()" class="btn-small">Add</button><h4>Frota</h4>`;
+        h += manager.data.vehicles.map(v => `<div class="admin-item"><span>${v.name}</span> <button class="danger btn-small" onclick="App.deleteVehicle(${v.id})">X</button></div>`).join('');
         return h;
     },
 
     renderAdminDrivers() {
-        let h = `
-            <div style="margin-bottom:20px; padding:15px; background: rgba(255,255,255,0.05); border-radius:15px">
-                <h4 style="margin-top:0">Novo Usuário</h4>
-                <div class="form-group"><input type="text" id="new-d-name" placeholder="Nome Completo"></div>
-                <button onclick="App.submitAddDriver()" class="btn-small">Cadastrar Usuário</button>
-            </div>
-            <h4>Usuários do Sistema</h4>
-        `;
-        h += manager.data.drivers.map(d => `
-            <div class="admin-item">
-                <div>
-                    <strong>${d.name}</strong><br>
-                    <span style="font-size:0.75rem; opacity:0.8">${d.isAdmin ? 'Administrador' : 'Motorista'}</span>
-                </div>
-                <div style="display:flex; gap:5px">
-                    <button class="secondary btn-small" style="width:auto; padding:5px 10px" onclick="App.toggleUserAdmin(${d.id})">${d.isAdmin ? 'Mudar p/ Motorista' : 'Tornar Admin'}</button>
-                    ${d.name !== 'Leandro Felipe' ? `<button class="danger btn-small" style="width:auto; padding:5px 10px" onclick="App.deleteDriver(${d.id})">Excluir</button>` : ''}
-                </div>
-            </div>
-        `).join('');
+        let h = "<h4>Novo Usuário</h4>";
+        h += `<input id="new-d-name" placeholder="Nome"><button onclick="App.submitAddDriver()" class="btn-small">Add</button><h4>Usuários</h4>`;
+        h += manager.data.drivers.map(d => `<div class="admin-item"><span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span> <button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})">Perm</button><button class="danger btn-small" onclick="App.deleteDriver(${d.id})">X</button></div>`).join('');
         return h;
     },
 
     async submitAddVehicle() {
         const name = document.getElementById('new-v-name').value;
         const type = document.getElementById('new-v-type').value;
-        if (!name) return alert("Preencha o nome!");
-        await manager.addVehicle({ name, type, lastVal: 0, defaultFuel: type === 'boat' ? 'Gasolina' : 'Diesel S10' });
-        App.switchAdminTab('vehicles');
+        await manager.addVehicle({ name, type, lastVal: 0 }); App.switchAdminTab('vehicles');
     },
 
     async submitAddDriver() {
         const name = document.getElementById('new-d-name').value;
-        if (!name) return alert("Preencha o nome!");
-        await manager.addDriver(name);
-        App.switchAdminTab('drivers');
+        await manager.addDriver(name); App.switchAdminTab('drivers');
     },
 
     async toggleUserAdmin(id) {
-        const idx = manager.data.drivers.findIndex(d => d.id == id);
-        if (idx !== -1) {
-            manager.data.drivers[idx].isAdmin = !manager.data.drivers[idx].isAdmin;
-            await manager.saveData();
-            App.switchAdminTab('drivers');
-        }
+        const d = manager.data.drivers.find(d => d.id == id);
+        if (d) { d.isAdmin = !d.isAdmin; await manager.saveData(); App.switchAdminTab('drivers'); }
     },
-
-    async deleteVehicle(id) { if (confirm("Excluir veículo?")) { await manager.deleteVehicle(id); App.switchAdminTab('vehicles'); } },
-    async deleteDriver(id) { if (confirm("Excluir usuário?")) { await manager.deleteDriver(id); App.switchAdminTab('drivers'); } },
 
     switchAdminTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.innerText.toLowerCase().includes(tab.slice(0, 3)));
         if (btn) btn.classList.add('active');
-
         const content = document.getElementById('admin-content');
         if (tab === 'logs') content.innerHTML = App.renderAdminLogs();
         if (tab === 'vehicles') content.innerHTML = App.renderAdminVehicles();
@@ -547,10 +422,7 @@ const App = {
         document.body.appendChild(d);
     },
 
-    closeModal() {
-        const m = document.querySelector('.modal-overlay');
-        if (m) m.remove();
-    }
+    closeModal() { const m = document.querySelector('.modal-overlay'); if (m) m.remove(); }
 };
 
 window.App = App;
