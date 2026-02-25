@@ -141,6 +141,7 @@ const App = {
                     <select id="login-driver-select">
                         ${manager.data.drivers.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
                     </select>
+                    <input type="password" id="login-pass-input" placeholder="Senha de Acesso" style="margin-top:10px">
                     <button onclick="App.login()">Entrar</button>
                 </div>
             </div>
@@ -156,7 +157,7 @@ const App = {
                         <h2 style="margin:0">Dashboard</h2>
                     </div>
                     <div style="display:flex; gap: 8px">
-                        ${isAdmin ? `<button onclick="App.render(App.views.AdminPanel)" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>` : `<button onclick="App.checkAdminAccess()" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>`}
+                        ${isAdmin ? `<button onclick="App.render(App.views.AdminPanel)" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">⚙️</button>` : ''}
                         <button onclick="App.logout()" class="secondary" style="width:40px; height:40px; padding:0; border-radius:50%">🚪</button>
                     </div>
                 </header>
@@ -225,7 +226,12 @@ const App = {
     },
 
     login() {
-        manager.data.currentUser = document.getElementById('login-driver-select').value;
+        const id = document.getElementById('login-driver-select').value;
+        const pass = document.getElementById('login-pass-input').value;
+
+        if (pass !== "Essencio123") return alert("Senha de acesso incorreta!");
+
+        manager.data.currentUser = id;
         manager.saveData();
         App.render(App.views.Dashboard);
     },
@@ -378,26 +384,44 @@ const App = {
     renderAdminVehicles() {
         let h = "<h4>Novo Veículo</h4>";
         h += `<input id="new-v-name" placeholder="Nome"><select id="new-v-type"><option value='car'>Carro</option><option value='boat'>Barco</option></select><button onclick="App.submitAddVehicle()" class="btn-small">Add</button><h4>Frota</h4>`;
-        h += manager.data.vehicles.map(v => `<div class="admin-item"><span>${v.name}</span> <button class="danger btn-small" onclick="App.deleteVehicle(${v.id})">X</button></div>`).join('');
+        h += manager.data.vehicles.map(v => `<div class="admin-item"><span>${v.name}</span> <button class="danger btn-small" onclick="App.deleteVehicle(${v.id})" style="width:35px">🗑️</button></div>`).join('');
         return h;
     },
 
     renderAdminDrivers() {
         let h = "<h4>Novo Usuário</h4>";
         h += `<input id="new-d-name" placeholder="Nome"><button onclick="App.submitAddDriver()" class="btn-small">Add</button><h4>Usuários</h4>`;
-        h += manager.data.drivers.map(d => `<div class="admin-item"><span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span> <button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})">Perm</button><button class="danger btn-small" onclick="App.deleteDriver(${d.id})">X</button></div>`).join('');
+        h += manager.data.drivers.map(d => `<div class="admin-item"><span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span> <div style="display:flex; gap:5px"><button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})" style="font-size:0.7rem">Usuário / Adm</button><button class="danger btn-small" onclick="App.deleteDriver(${d.id})" style="width:35px">🗑️</button></div></div>`).join('');
         return h;
     },
 
     async submitAddVehicle() {
         const name = document.getElementById('new-v-name').value;
         const type = document.getElementById('new-v-type').value;
-        await manager.addVehicle({ name, type, lastVal: 0 }); App.switchAdminTab('vehicles');
+        if (!name) return alert("Digite o nome/placa");
+        await manager.addVehicle({ name, type, lastVal: 0 });
+        App.switchAdminTab('vehicles');
     },
 
     async submitAddDriver() {
         const name = document.getElementById('new-d-name').value;
-        await manager.addDriver(name); App.switchAdminTab('drivers');
+        if (!name) return alert("Digite o nome");
+        await manager.addDriver(name);
+        App.switchAdminTab('drivers');
+    },
+
+    async deleteVehicle(id) {
+        if (confirm("Excluir veículo?")) {
+            await manager.deleteVehicle(id);
+            App.switchAdminTab('vehicles');
+        }
+    },
+
+    async deleteDriver(id) {
+        if (confirm("Excluir usuário?")) {
+            await manager.deleteDriver(id);
+            App.switchAdminTab('drivers');
+        }
     },
 
     async toggleUserAdmin(id) {
