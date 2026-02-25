@@ -37,6 +37,9 @@ class FleetManager {
                 const cloudData = snapshot.val();
                 if (cloudData) {
                     this.data = cloudData;
+                    // Garante que as listas de logs existam
+                    if (!this.data.usageLogs) this.data.usageLogs = [];
+                    if (!this.data.fuelLogs) this.data.fuelLogs = [];
                 } else {
                     // Estado inicial se o banco estiver vazio
                     this.data = {
@@ -353,7 +356,7 @@ const App = {
                     </div>
                 </div>
 
-                <button class="danger" onclick="App.submitCheckOut()">Finalizar e Salvar</button>
+                <button class="danger" onclick="App.submitCheckOut(event)">Finalizar e Salvar</button>
             </div>
         `},
 
@@ -401,14 +404,14 @@ const App = {
         const dId = document.getElementById('login-driver-select').value;
         manager.data.currentUser = dId;
         await manager.saveData();
-        this.render(this.views.Dashboard);
+        App.render(App.views.Dashboard);
     },
 
     async logout() {
         if (confirm("Deseja realmente sair?")) {
             manager.data.currentUser = null;
             await manager.saveData();
-            this.render(this.views.Login);
+            App.render(App.views.Login);
         }
     },
 
@@ -426,8 +429,8 @@ const App = {
     submitAdminPassword() {
         const pass = document.getElementById('admin-pass-input').value;
         if (pass === "Essencio123") {
-            this.closeModal();
-            this.render(this.views.AdminPanel);
+            App.closeModal();
+            App.render(App.views.AdminPanel);
         } else {
             alert("Senha incorreta!");
         }
@@ -538,7 +541,7 @@ const App = {
     takePhoto() {
         const preview = document.getElementById('photo-preview');
         preview.innerHTML = `<img src="https://images.unsplash.com/photo-1594914141274-78304524ef6c?q=80&w=200&auto=format&fit=crop" alt="Foto">`;
-        this.currentPhoto = "simulated_photo_url_" + Date.now();
+        App.currentPhoto = "simulated_photo_url_" + Date.now();
     },
 
     async submitCheckIn() {
@@ -566,14 +569,14 @@ const App = {
             vehicleId: vId,
             startTime: new Date().toISOString(),
             startVal: val,
-            startPhoto: this.currentPhoto
+            startPhoto: App.currentPhoto
         };
         await manager.saveData();
-        this.currentPhoto = null;
-        this.render(this.views.Dashboard);
+        App.currentPhoto = null;
+        App.render(App.views.Dashboard);
     },
 
-    async submitCheckOut() {
+    async submitCheckOut(event) {
         const session = manager.data.currentSession;
         if (!session) return alert("Sessão não encontrada!");
 
@@ -594,7 +597,7 @@ const App = {
             if (!validation.ok) return alert(validation.msg);
         }
 
-        if (!this.currentPhoto) return alert("Tire a foto do painel final!");
+        if (!App.currentPhoto) return alert("Tire a foto do painel final!");
 
         const btn = event.target;
         btn.disabled = true;
@@ -618,8 +621,8 @@ const App = {
 
             manager.data.currentSession = null;
             await manager.saveData();
-            this.currentPhoto = null;
-            this.render(this.views.Dashboard);
+            App.currentPhoto = null;
+            App.render(App.views.Dashboard);
         } catch (e) {
             alert("Erro ao salvar: " + e.message);
             btn.disabled = false;
@@ -680,8 +683,8 @@ const App = {
             }
 
             await manager.saveData();
-            this.currentPhoto = null;
-            this.render(this.views.Dashboard);
+            App.currentPhoto = null;
+            App.render(App.views.Dashboard);
         } catch (e) {
             alert("Erro ao salvar abastecimento: " + e.message);
             btn.disabled = false;
