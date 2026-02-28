@@ -325,3 +325,81 @@ select:focus {
         transform: rotate(360deg);
     }
 }
+
+/* Log Tables */
+.log-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(10 * 38px + 38px);
+    /* 10 data rows + header */
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.log-table-wrap::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+.log-table-wrap::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+.log-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: 10px;
+}
+
+.log-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+    color: var(--text-main);
+}
+
+.log-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.log-table th {
+    background: var(--bg-card);
+    color: var(--primary);
+    font-weight: 600;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+}
+
+.log-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    color: var(--text-main);
+}
+
+.log-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.log-table tbody tr:hover td {
+    background: rgba(0, 188, 193, 0.07);
+}
+
+/* Export modal form groups */
+.modal-content .form-group label {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+}
+
+.modal-content .form-group {
+    margin-bottom: 12px;
+}

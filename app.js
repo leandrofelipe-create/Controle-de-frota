@@ -87,20 +87,59 @@ class FleetManager {
         });
     }
 
-    exportExcel() {
-        const fuelData = (this.data.fuelLogs || []).map(l => {
+    exportExcelFiltered(filters = {}) {
+        const { vehicleId, driverId, dateFrom, dateTo } = filters;
+        const inRange = (dateStr) => {
+            if (!dateStr) return true;
+            const d = new Date(dateStr);
+            if (dateFrom && d < new Date(dateFrom)) return false;
+            if (dateTo && d > new Date(dateTo + 'T23:59:59')) return false;
+            return true;
+        };
+        const fuelLogs = this.data.fuelLogs || [];
+        const fuelData = fuelLogs.filter(l =>
+            (!vehicleId || l.vehicleId == vehicleId) &&
+            (!driverId || l.driverId == driverId) &&
+            inRange(l.date)
+        ).map(l => {
             const v = this.data.vehicles.find(v => v.id == l.vehicleId);
             const d = this.data.drivers.find(d => d.id == l.driverId);
-            return { "Data": new Date(l.date).toLocaleString(), "Veículo": v?.name, "Motorista": d?.name, "KM/Horas": l.val, "Litros": l.liters, "Total R$": l.total };
+            const metrics = App.calcFuelMetrics(l.vehicleId, l, fuelLogs);
+            return {
+                "Data": new Date(l.date).toLocaleString(),
+                "Veículo": v?.name,
+                "Motorista": d?.name,
+                "KM/Horas no Abastecimento": l.val,
+                "Litros": l.liters,
+                "Total R$": l.total,
+                "Tanque Cheio": l.isFull ? 'Sim' : 'Não',
+                "KM Período De": metrics.periodFrom,
+                "KM Período Até": metrics.periodTo,
+                "Data Período De": metrics.dateFrom,
+                "Data Período Até": metrics.dateTo,
+                [`Média Abastecimento (${metrics.unit})`]: metrics.avgThis,
+                [`Média Histórica Veículo (${metrics.unit})`]: metrics.avgHistoric
+            };
         });
-        const usageData = (this.data.usageLogs || []).map(l => {
+        const usageLogs = this.data.usageLogs || [];
+        const usageData = usageLogs.filter(l =>
+            (!vehicleId || l.vehicleId == vehicleId) &&
+            (!driverId || l.driverId == driverId) &&
+            inRange(l.startTime)
+        ).map(l => {
             const v = this.data.vehicles.find(v => v.id == l.vehicleId);
             const d = this.data.drivers.find(d => d.id == l.driverId);
-            return { "Veículo": v?.name, "Motorista": d?.name, "Início": new Date(l.startTime).toLocaleString(), "Fim": new Date(l.endTime).toLocaleString(), "KM/h Percorrido": l.sessionDiff };
+            return {
+                "Veículo": v?.name,
+                "Motorista": d?.name,
+                "Início": new Date(l.startTime).toLocaleString(),
+                "Fim": new Date(l.endTime).toLocaleString(),
+                "KM/h Percorrido": l.sessionDiff
+            };
         });
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fuelData), "Abastecimentos");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usageData), "Uso");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fuelData.length ? fuelData : [{}]), "Abastecimentos");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usageData.length ? usageData : [{}]), "Uso");
         XLSX.writeFile(wb, "Controle_Frota_Essencio.xlsx");
     }
 }
@@ -223,7 +262,7 @@ const App = {
                     <button class="tab-btn btn-small" onclick="App.switchAdminTab('drivers')">Usuários</button>
                 </div>
                 <div id="admin-content" class="admin-list">${App.renderAdminLogs()}</div>
-                <button class="secondary" style="margin-top:20px" onclick="manager.exportExcel()">📊 Exportar Excel</button>
+                <button class="secondary" style="margin-top:20px" onclick="App.showExportModal()">📊 Exportar Excel</button>
             </div>
         `,
         ChangePassword: () => `
@@ -246,8 +285,18 @@ const App = {
         const pass = document.getElementById('login-pass-input').value;
         const user = manager.data.drivers.find(d => d.id == id);
 
+        // Se senha foi apagada pelo admin, qualquer entrada no campo é aceita
+        // e usuário é direcionado para definir nova senha
+        if (user?.password === '' || user?.password === null) {
+            manager.data.currentUser = id;
+            manager.saveData();
+            alert('Sua senha foi redefinida. Por favor, cadastre uma nova senha.');
+            App.render(App.views.ChangePassword);
+            return;
+        }
+
         const userPass = user?.password || 'Essencio123';
-        if (pass !== userPass) return alert("Senha de acesso incorreta para este usuário!");
+        if (pass !== userPass) return alert('Senha de acesso incorreta para este usuário!');
 
         manager.data.currentUser = id;
         manager.saveData();
@@ -396,18 +445,113 @@ const App = {
         } catch (e) { alert(e.message); }
     },
 
+    calcFuelMetrics(vehicleId, fuelEntry, allFuelLogs) {
+        const logs = allFuelLogs || manager.data.fuelLogs || [];
+        const vehicle = manager.data.vehicles.find(v => v.id == vehicleId);
+        const isBoat = vehicle?.type === 'boat';
+        const unit = isBoat ? 'L/h' : 'KM/L';
+
+        // Encontra o abastecimento completo anterior para calcular o período
+        const sortedLogs = logs.filter(l => l.vehicleId == vehicleId).sort((a, b) => new Date(a.date) - new Date(b.date));
+        const idx = sortedLogs.findIndex(l => l.id === fuelEntry.id);
+        let periodFrom = '—', periodTo = '—', dateFrom = '—', dateTo = '—', avgThis = '—';
+
+        if (fuelEntry.isFull && idx > 0) {
+            // Busca abastecimento full anterior
+            let prevFullIdx = -1;
+            for (let i = idx - 1; i >= 0; i--) {
+                if (sortedLogs[i].isFull) { prevFullIdx = i; break; }
+            }
+            if (prevFullIdx >= 0) {
+                const prev = sortedLogs[prevFullIdx];
+                const kmDiff = fuelEntry.val - prev.val;
+                // Soma litros entre os dois abastecimentos full (inclusive o atual)
+                let totalLiters = 0;
+                for (let i = prevFullIdx + 1; i <= idx; i++) totalLiters += parseFloat(sortedLogs[i].liters);
+                periodFrom = prev.val;
+                periodTo = fuelEntry.val;
+                dateFrom = new Date(prev.date).toLocaleDateString();
+                dateTo = new Date(fuelEntry.date).toLocaleDateString();
+                if (totalLiters > 0) {
+                    avgThis = isBoat ? (totalLiters / (kmDiff / 1)).toFixed(2) : (kmDiff / totalLiters).toFixed(2);
+                }
+            }
+        }
+
+        // Média histórica: usa todos os pares de abastecimentos full
+        let avgHistoric = '—';
+        const fullLogs = sortedLogs.filter(l => l.isFull);
+        if (fullLogs.length >= 2) {
+            let totalKm = 0, totalL = 0;
+            for (let i = 1; i < fullLogs.length; i++) {
+                totalKm += fullLogs[i].val - fullLogs[i - 1].val;
+                totalL += parseFloat(fullLogs[i].liters);
+            }
+            if (totalL > 0) avgHistoric = isBoat ? (totalL / (totalKm / 1)).toFixed(2) : (totalKm / totalL).toFixed(2);
+        }
+
+        return { periodFrom, periodTo, dateFrom, dateTo, avgThis, avgHistoric, unit };
+    },
+
     renderAdminLogs() {
-        const fuel = (manager.data.fuelLogs || []).slice().reverse();
-        const usage = (manager.data.usageLogs || []).slice().reverse();
-        let h = "<h4>Últimos Logs</h4>";
-        h += fuel.map(l => {
-            const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
-            return `<div class="admin-item" style="font-size:0.8rem">⛽ ${v?.name}: ${l.liters}L - R$ ${l.total}</div>`;
-        }).join('');
-        h += usage.map(l => {
-            const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
-            return `<div class="admin-item" style="font-size:0.8rem">🚗 ${v?.name}: ${l.sessionDiff} percorrido</div>`;
-        }).join('');
+        const fuelLogs = manager.data.fuelLogs || [];
+        const usageLogs = manager.data.usageLogs || [];
+        const fuel = fuelLogs.slice().reverse();
+        const usage = usageLogs.slice().reverse();
+
+        let h = `<h4 style="margin-bottom:8px">⛽ Abastecimentos</h4>`;
+        h += `<div class="log-table-wrap">`;
+        h += `<table class="log-table"><thead><tr>
+            <th>Data</th><th>Veículo</th><th>Motorista</th><th>KM/h</th><th>Litros</th><th>R$</th>
+            <th>KM De</th><th>KM Até</th><th>Data De</th><th>Data Até</th>
+            <th>Média Abast.</th><th>Média Hist.</th>
+        </tr></thead><tbody>`;
+        if (fuel.length === 0) {
+            h += `<tr><td colspan="12" style="text-align:center;color:var(--text-muted)">Nenhum registro</td></tr>`;
+        } else {
+            h += fuel.map(l => {
+                const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
+                const d = manager.data.drivers.find(d => d.id == l.driverId);
+                const m = App.calcFuelMetrics(l.vehicleId, l, fuelLogs);
+                return `<tr>
+                    <td>${new Date(l.date).toLocaleString()}</td>
+                    <td>${v?.name || '—'}</td>
+                    <td>${d?.name || '—'}</td>
+                    <td>${l.val}</td>
+                    <td>${l.liters}</td>
+                    <td>R$ ${l.total}</td>
+                    <td>${m.periodFrom}</td>
+                    <td>${m.periodTo}</td>
+                    <td>${m.dateFrom}</td>
+                    <td>${m.dateTo}</td>
+                    <td>${m.avgThis} ${m.avgThis !== '—' ? m.unit : ''}</td>
+                    <td>${m.avgHistoric} ${m.avgHistoric !== '—' ? m.unit : ''}</td>
+                </tr>`;
+            }).join('');
+        }
+        h += `</tbody></table></div>`;
+
+        h += `<h4 style="margin:16px 0 8px">🚗 Uso de Veículos</h4>`;
+        h += `<div class="log-table-wrap">`;
+        h += `<table class="log-table"><thead><tr>
+            <th>Veículo</th><th>Motorista</th><th>Início</th><th>Fim</th><th>KM/h Percorrido</th>
+        </tr></thead><tbody>`;
+        if (usage.length === 0) {
+            h += `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Nenhum registro</td></tr>`;
+        } else {
+            h += usage.map(l => {
+                const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
+                const d = manager.data.drivers.find(d => d.id == l.driverId);
+                return `<tr>
+                    <td>${v?.name || '—'}</td>
+                    <td>${d?.name || '—'}</td>
+                    <td>${new Date(l.startTime).toLocaleString()}</td>
+                    <td>${new Date(l.endTime).toLocaleString()}</td>
+                    <td>${l.sessionDiff}</td>
+                </tr>`;
+            }).join('');
+        }
+        h += `</tbody></table></div>`;
         return h;
     },
 
@@ -430,9 +574,10 @@ const App = {
         `;
         h += manager.data.drivers.map(d => `
             <div class="admin-item">
-                <span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})</span>
+                <span>${d.name} (${d.isAdmin ? 'Admin' : 'Motor'})${(!d.password && d.password !== undefined) || d.password === '' ? ' <span style="color:var(--danger);font-size:0.7rem">[sem senha]</span>' : ''}</span>
                 <div style="display:flex; gap:5px">
                     <button class="secondary btn-small" onclick="App.toggleUserAdmin(${d.id})" style="font-size:0.7rem">Usuário / Adm</button>
+                    <button class="secondary btn-small" onclick="App.resetDriverPassword(${d.id})" style="width:35px; cursor:pointer" title="Apagar senha">🔑</button>
                     <button class="danger btn-small" onclick="App.deleteDriver(${d.id})" style="width:35px; cursor:pointer" title="Excluir">🗑️</button>
                 </div>
             </div>
@@ -473,6 +618,58 @@ const App = {
     async toggleUserAdmin(id) {
         const d = manager.data.drivers.find(d => d.id == id);
         if (d) { d.isAdmin = !d.isAdmin; await manager.saveData(); App.switchAdminTab('drivers'); }
+    },
+
+    async resetDriverPassword(id) {
+        const d = manager.data.drivers.find(d => d.id == id);
+        if (!d) return;
+        if (confirm(`Apagar a senha de "${d.name}"?\n\nNo próximo acesso, o usuário será solicitado a cadastrar uma nova senha.`)) {
+            d.password = '';
+            await manager.saveData();
+            App.switchAdminTab('drivers');
+        }
+    },
+
+    showExportModal() {
+        const vehicles = manager.data.vehicles || [];
+        const drivers = manager.data.drivers || [];
+        const vehicleOpts = vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+        const driverOpts = drivers.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        App.showModal(`
+            <h3 style="margin-bottom:15px">📊 Exportar Excel</h3>
+            <div class="form-group">
+                <label>Veículo</label>
+                <select id="exp-vehicle" style="margin-bottom:0">
+                    <option value="">Todos os veículos</option>
+                    ${vehicleOpts}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Motorista</label>
+                <select id="exp-driver" style="margin-bottom:0">
+                    <option value="">Todos os motoristas</option>
+                    ${driverOpts}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Data Início</label>
+                <input type="date" id="exp-date-from" style="margin-bottom:0">
+            </div>
+            <div class="form-group">
+                <label>Data Fim</label>
+                <input type="date" id="exp-date-to" style="margin-bottom:0">
+            </div>
+            <button onclick="App.doExport()" style="margin-top:10px">Exportar</button>
+        `);
+    },
+
+    doExport() {
+        const vehicleId = document.getElementById('exp-vehicle').value;
+        const driverId = document.getElementById('exp-driver').value;
+        const dateFrom = document.getElementById('exp-date-from').value;
+        const dateTo = document.getElementById('exp-date-to').value;
+        App.closeModal();
+        manager.exportExcelFiltered({ vehicleId, driverId, dateFrom, dateTo });
     },
 
     switchAdminTab(tab) {
