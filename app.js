@@ -87,60 +87,118 @@ class FleetManager {
         });
     }
 
-    exportExcelFiltered(filters = {}) {
-        const { vehicleId, driverId, dateFrom, dateTo } = filters;
-        const inRange = (dateStr) => {
-            if (!dateStr) return true;
-            const d = new Date(dateStr);
-            if (dateFrom && d < new Date(dateFrom)) return false;
-            if (dateTo && d > new Date(dateTo + 'T23:59:59')) return false;
-            return true;
-        };
-        const fuelLogs = this.data.fuelLogs || [];
-        const fuelData = fuelLogs.filter(l =>
-            (!vehicleId || l.vehicleId == vehicleId) &&
-            (!driverId || l.driverId == driverId) &&
-            inRange(l.date)
-        ).map(l => {
-            const v = this.data.vehicles.find(v => v.id == l.vehicleId);
-            const d = this.data.drivers.find(d => d.id == l.driverId);
-            const metrics = App.calcFuelMetrics(l.vehicleId, l, fuelLogs);
-            return {
-                "Data": new Date(l.date).toLocaleString(),
-                "Veículo": v?.name,
-                "Motorista": d?.name,
-                "KM/Horas no Abastecimento": l.val,
-                "Litros": l.liters,
-                "Total R$": l.total,
-                "Tanque Cheio": l.isFull ? 'Sim' : 'Não',
-                "KM Período De": metrics.periodFrom,
-                "KM Período Até": metrics.periodTo,
-                "Data Período De": metrics.dateFrom,
-                "Data Período Até": metrics.dateTo,
-                [`Média Abastecimento (${metrics.unit})`]: metrics.avgThis,
-                [`Média Histórica Veículo (${metrics.unit})`]: metrics.avgHistoric
+    async exportExcelFiltered(filters = {}) {
+        App.showModal('<div style="text-align:center; padding:20px"><div class="spinner" style="margin: 0 auto 10px"></div><p>Gerando arquivo Excel com fotos...</p></div>');
+
+        try {
+            const { vehicleId, driverId, dateFrom, dateTo } = filters;
+            const inRange = (dateStr) => {
+                if (!dateStr) return true;
+                const d = new Date(dateStr);
+                if (dateFrom && d < new Date(dateFrom)) return false;
+                if (dateTo && d > new Date(dateTo + 'T23:59:59')) return false;
+                return true;
             };
-        });
-        const usageLogs = this.data.usageLogs || [];
-        const usageData = usageLogs.filter(l =>
-            (!vehicleId || l.vehicleId == vehicleId) &&
-            (!driverId || l.driverId == driverId) &&
-            inRange(l.startTime)
-        ).map(l => {
-            const v = this.data.vehicles.find(v => v.id == l.vehicleId);
-            const d = this.data.drivers.find(d => d.id == l.driverId);
-            return {
-                "Veículo": v?.name,
-                "Motorista": d?.name,
-                "Início": new Date(l.startTime).toLocaleString(),
-                "Fim": new Date(l.endTime).toLocaleString(),
-                "KM/h Percorrido": l.sessionDiff
-            };
-        });
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fuelData.length ? fuelData : [{}]), "Abastecimentos");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usageData.length ? usageData : [{}]), "Uso");
-        XLSX.writeFile(wb, "Controle_Frota_Essencio.xlsx");
+
+            const wb = new ExcelJS.Workbook();
+            const wsFuel = wb.addWorksheet('Abastecimentos');
+            const wsUsage = wb.addWorksheet('Uso');
+
+            // --- Abastecimentos ---
+            wsFuel.columns = [
+                { header: 'Data', key: 'date', width: 22 },
+                { header: 'Veículo', key: 'vehicle', width: 25 },
+                { header: 'Motorista', key: 'driver', width: 25 },
+                { header: 'KM/Horas', key: 'val', width: 15 },
+                { header: 'Litros', key: 'liters', width: 10 },
+                { header: 'Total R$', key: 'total', width: 15 },
+                { header: 'Tanque Cheio', key: 'full', width: 15 },
+                { header: 'KM De', key: 'kmDe', width: 12 },
+                { header: 'KM Até', key: 'kmAte', width: 12 },
+                { header: 'Data De', key: 'dataDe', width: 15 },
+                { header: 'Data Até', key: 'dataAte', width: 15 },
+                { header: 'Média Abast.', key: 'avgThis', width: 15 },
+                { header: 'Média Histórica', key: 'avgHist', width: 15 },
+                { header: 'Foto Comprovante', key: 'photo', width: 30 }
+            ];
+            wsFuel.getRow(1).font = { bold: true };
+
+            const fuelLogs = this.data.fuelLogs || [];
+            const filteredFuel = fuelLogs.filter(l => (!vehicleId || l.vehicleId == vehicleId) && (!driverId || l.driverId == driverId) && inRange(l.date));
+
+            for (let i = 0; i < filteredFuel.length; i++) {
+                const l = filteredFuel[i];
+                const v = this.data.vehicles.find(v => v.id == l.vehicleId);
+                const d = this.data.drivers.find(d => d.id == l.driverId);
+                const m = App.calcFuelMetrics(l.vehicleId, l, fuelLogs);
+
+                const row = wsFuel.addRow({
+                    date: new Date(l.date).toLocaleString(), vehicle: v?.name, driver: d?.name,
+                    val: l.val, liters: l.liters, total: l.total, full: l.isFull ? 'Sim' : 'Não',
+                    kmDe: m.periodFrom, kmAte: m.periodTo, dataDe: m.dateFrom, dataAte: m.dateTo,
+                    avgThis: m.avgThis + (m.avgThis !== '—' ? ' ' + m.unit : ''),
+                    avgHist: m.avgHistoric + (m.avgHistoric !== '—' ? ' ' + m.unit : '')
+                });
+
+                if (l.photo && l.photo.startsWith('data:image')) {
+                    row.height = 100;
+                    const imgId = wb.addImage({ base64: l.photo, extension: 'jpeg' });
+                    wsFuel.addImage(imgId, {
+                        tl: { col: 13, row: row.number - 1 },
+                        ext: { width: 180, height: 120 }
+                    });
+                }
+            }
+
+            // --- Uso ---
+            wsUsage.columns = [
+                { header: 'Veículo', key: 'v', width: 25 },
+                { header: 'Motorista', key: 'd', width: 25 },
+                { header: 'Início', key: 'ini', width: 22 },
+                { header: 'Fim', key: 'fim', width: 22 },
+                { header: 'KM/h Percorrido', key: 'diff', width: 18 },
+                { header: 'Foto Painel Fim', key: 'photo', width: 30 }
+            ];
+            wsUsage.getRow(1).font = { bold: true };
+
+            const usageLogs = this.data.usageLogs || [];
+            const filteredUsage = usageLogs.filter(l => (!vehicleId || l.vehicleId == vehicleId) && (!driverId || l.driverId == driverId) && inRange(l.startTime));
+
+            for (let i = 0; i < filteredUsage.length; i++) {
+                const l = filteredUsage[i];
+                const v = this.data.vehicles.find(v => v.id == l.vehicleId);
+                const d = this.data.drivers.find(d => d.id == l.driverId);
+
+                const row = wsUsage.addRow({
+                    v: v?.name, d: d?.name,
+                    ini: new Date(l.startTime).toLocaleString(),
+                    fim: new Date(l.endTime).toLocaleString(),
+                    diff: l.sessionDiff
+                });
+
+                if (l.endPhoto && l.endPhoto.startsWith('data:image')) {
+                    row.height = 100;
+                    const imgId = wb.addImage({ base64: l.endPhoto, extension: 'jpeg' });
+                    wsUsage.addImage(imgId, {
+                        tl: { col: 5, row: row.number - 1 },
+                        ext: { width: 180, height: 120 }
+                    });
+                }
+            }
+
+            const buffer = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = "Controle_Frota_Essencio.xlsx";
+            link.click();
+            App.closeModal();
+
+        } catch (err) {
+            console.error(err);
+            App.closeModal();
+            alert("Erro ao gerar Excel: " + err.message);
+        }
     }
 }
 
@@ -237,7 +295,12 @@ const App = {
                     <p style="margin:0; font-size: 0.9rem">Início: <strong>${session.startVal}</strong></p>
                 </div>
                 ${vehicle.type === 'boat' ? '<p style="font-size:0.8rem">Horas calculadas automaticamente.</p>' : '<div class="form-group"><label>KM Final</label><input type="number" id="end-val" placeholder="KM Atual"></div>'}
-                <div class="photo-preview" id="photo-preview" onclick="App.takePhoto()"><span>Foto Painel</span></div>
+                
+                <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
+                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
+                    <span id="photo-preview-text">📸 Tirar Foto do Painel</span>
+                </label>
+                
                 <button class="danger" id="btn-checkout" onclick="App.submitCheckOut(event)">Finalizar e Salvar</button>
             </div>
         `},
@@ -349,7 +412,12 @@ const App = {
             container.innerHTML = `
                 ${lastValLabel}
                 ${vehicle.type === 'car' ? '<div class="form-group"><label>KM Inicial</label><input type="number" id="start-val" value="${vehicle.lastVal || 0}"></div>' : ''}
-                <div class="photo-preview" id="photo-preview" onclick="App.takePhoto()"><span>Foto Painel</span></div>
+                
+                <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
+                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
+                    <span id="photo-preview-text">📸 Tirar Foto do Painel</span>
+                </label>
+                
                 <button onclick="App.submitCheckIn()">Iniciar</button>
             `;
         } else {
@@ -357,7 +425,12 @@ const App = {
                 ${lastValLabel}
                 <div class="form-group"><label>KM/Horas Atual</label><input type="number" id="fuel-val" value="${vehicle.lastVal || 0}"></div>
                 <div id="ai-status"></div>
-                <div class="photo-preview" id="photo-preview" onclick="App.processReceiptIA()"><span>Foto Comprovante (IA)</span></div>
+                
+                <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
+                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview', true)">
+                    <span id="photo-preview-text">📸 Tirar Foto Comprovante (IA)</span>
+                </label>
+                
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px">
                     <div class="form-group"><label>Litros</label><input type="number" step="0.01" id="fuel-liters" oninput="App.calcFuelTotal()"></div>
                     <div class="form-group"><label>R$/L</label><input type="number" step="0.01" id="fuel-price-l" oninput="App.calcFuelTotal()"></div>
@@ -369,56 +442,51 @@ const App = {
         }
     },
 
-    async processReceiptIA() {
-        App.takePhoto();
+    handlePhotoUpload(event, previewId, processIA = false) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 600;
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+                const preview = document.getElementById(previewId);
+                if (preview) {
+                    preview.innerHTML = `<img src="${dataUrl}" style="width:100%; height:100%; object-fit:cover; border-radius: var(--radius)">`;
+                }
+                App.currentPhoto = dataUrl; // Salva o Base64 real no state
+
+                if (processIA) {
+                    App.processReceiptIA_Trigger();
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    },
+
+    async processReceiptIA_Trigger() {
         const s = document.getElementById('ai-status');
-        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--accent)'>Interpretando comprovante...</p>";
+        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--accent)'>Interpretando comprovante pela IA...</p>";
         const data = await manager.simulateAIScan();
         document.getElementById('fuel-liters').value = data.liters;
         document.getElementById('fuel-price-l').value = data.pricePerLiter;
         document.getElementById('fuel-total').value = data.total;
-        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--success)'>✓ Dados extraídos!</p>";
+        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--success)'>✓ Dados extraídos da foto!</p>";
     },
 
     calcFuelTotal() {
         const l = parseFloat(document.getElementById('fuel-liters').value) || 0;
         const p = parseFloat(document.getElementById('fuel-price-l').value) || 0;
         document.getElementById('fuel-total').value = (l * p).toFixed(2);
-    },
-
-    takePhoto() {
-        // Remove qualquer input anterior para evitar duplicidade
-        const existing = document.getElementById('camera-input');
-        if (existing) existing.remove();
-
-        // Cria input de arquivo — setAttribute garante compatibilidade com iOS e Android
-        const input = document.createElement('input');
-        input.setAttribute('type', 'file');
-        input.setAttribute('accept', 'image/*');
-        input.setAttribute('capture', 'environment'); // câmera traseira no celular
-        input.setAttribute('id', 'camera-input');
-        input.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;width:1px;height:1px';
-        document.body.appendChild(input);
-
-        input.addEventListener('change', () => {
-            const file = input.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const preview = document.getElementById('photo-preview');
-                if (preview) {
-                    preview.innerHTML = `<img src="${e.target.result}" style="width:100%; height:100%; object-fit:cover">`;
-                }
-                App.currentPhoto = 'photo_' + Date.now();
-                App.currentPhotoFile = file;
-            };
-            reader.readAsDataURL(file);
-            input.remove();
-        });
-
-        // Disparo direto — precisa estar na mesma pilha de evento do usuário
-        input.click();
     },
 
     async submitCheckIn() {
