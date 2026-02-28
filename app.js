@@ -391,13 +391,13 @@ const App = {
         const existing = document.getElementById('camera-input');
         if (existing) existing.remove();
 
-        // Cria input de arquivo com acesso à câmera traseira (capture="environment")
+        // Cria input de arquivo — setAttribute garante compatibilidade com iOS e Android
         const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.capture = 'environment'; // câmera traseira no celular
-        input.id = 'camera-input';
-        input.style.display = 'none';
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.setAttribute('capture', 'environment'); // câmera traseira no celular
+        input.setAttribute('id', 'camera-input');
+        input.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;width:1px;height:1px';
         document.body.appendChild(input);
 
         input.addEventListener('change', () => {
@@ -410,13 +410,14 @@ const App = {
                 if (preview) {
                     preview.innerHTML = `<img src="${e.target.result}" style="width:100%; height:100%; object-fit:cover">`;
                 }
-                App.currentPhoto = "photo_" + Date.now();
-                App.currentPhotoFile = file; // guarda o arquivo se quiser upload futuro
+                App.currentPhoto = 'photo_' + Date.now();
+                App.currentPhotoFile = file;
             };
             reader.readAsDataURL(file);
             input.remove();
         });
 
+        // Disparo direto — precisa estar na mesma pilha de evento do usuário
         input.click();
     },
 
@@ -424,7 +425,11 @@ const App = {
         const vId = document.getElementById('vehicle-select').value;
         const vehicle = manager.data.vehicles.find(v => v.id == vId);
         const val = vehicle.type === 'boat' ? vehicle.lastVal : parseFloat(document.getElementById('start-val').value);
-        if (!App.currentPhoto || isNaN(val)) return alert("Dados incompletos!");
+        if (!App.currentPhoto || isNaN(val)) return alert('Preencha o KM e registre a foto do painel!');
+        // Valida que o KM não é menor que o último registrado
+        if (vehicle.type === 'car' && val < (vehicle.lastVal || 0)) {
+            return alert(`⚠️ KM inválido!\nO KM informado (${val}) é menor que o último registro (${vehicle.lastVal}).\nVerifique e informe o KM correto.`);
+        }
         manager.data.currentSession = { id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, startTime: new Date().toISOString(), startVal: val, startPhoto: App.currentPhoto };
         await manager.saveData();
         App.currentPhoto = null;
