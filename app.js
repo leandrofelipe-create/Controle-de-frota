@@ -387,9 +387,37 @@ const App = {
     },
 
     takePhoto() {
-        const preview = document.getElementById('photo-preview');
-        preview.innerHTML = `<img src="https://images.unsplash.com/photo-1594914141274-78304524ef6c?q=80&w=200&auto=format&fit=crop" style="width:100%; height:100%; object-fit:cover">`;
-        App.currentPhoto = "photo_" + Date.now();
+        // Remove qualquer input anterior para evitar duplicidade
+        const existing = document.getElementById('camera-input');
+        if (existing) existing.remove();
+
+        // Cria input de arquivo com acesso à câmera traseira (capture="environment")
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment'; // câmera traseira no celular
+        input.id = 'camera-input';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', () => {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const preview = document.getElementById('photo-preview');
+                if (preview) {
+                    preview.innerHTML = `<img src="${e.target.result}" style="width:100%; height:100%; object-fit:cover">`;
+                }
+                App.currentPhoto = "photo_" + Date.now();
+                App.currentPhotoFile = file; // guarda o arquivo se quiser upload futuro
+            };
+            reader.readAsDataURL(file);
+            input.remove();
+        });
+
+        input.click();
     },
 
     async submitCheckIn() {
