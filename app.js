@@ -110,6 +110,7 @@ class FleetManager {
                 { header: 'Veículo', key: 'vehicle', width: 25 },
                 { header: 'Motorista', key: 'driver', width: 25 },
                 { header: 'KM/Horas', key: 'val', width: 15 },
+                { header: 'Tipo Combustível', key: 'type', width: 20 },
                 { header: 'Litros', key: 'liters', width: 10 },
                 { header: 'Total R$', key: 'total', width: 15 },
                 { header: 'Tanque Cheio', key: 'full', width: 15 },
@@ -134,7 +135,7 @@ class FleetManager {
 
                 const row = wsFuel.addRow({
                     date: new Date(l.date).toLocaleString(), vehicle: v?.name, driver: d?.name,
-                    val: l.val, liters: l.liters, total: l.total, full: l.isFull ? 'Sim' : 'Não',
+                    val: l.val, type: l.fuelType || '—', liters: l.liters, total: l.total, full: l.isFull ? 'Sim' : 'Não',
                     kmDe: m.periodFrom, kmAte: m.periodTo, dataDe: m.dateFrom, dataAte: m.dateTo,
                     avgThis: m.avgThis + (m.avgThis !== '—' ? ' ' + m.unit : ''),
                     avgHist: m.avgHistoric + (m.avgHistoric !== '—' ? ' ' + m.unit : '')
@@ -144,7 +145,7 @@ class FleetManager {
                     row.height = 100;
                     const imgId = wb.addImage({ base64: l.photo, extension: 'jpeg' });
                     wsFuel.addImage(imgId, {
-                        tl: { col: 13, row: row.number - 1 },
+                        tl: { col: 14, row: row.number - 1 }, // Coluna 14 (base 0) = Foto
                         ext: { width: 180, height: 120 }
                     });
                 }
@@ -436,6 +437,19 @@ const App = {
                     <div class="form-group"><label>R$/L</label><input type="number" step="0.01" id="fuel-price-l" oninput="App.calcFuelTotal()"></div>
                 </div>
                 <div class="form-group"><label>Total R$</label><input type="number" id="fuel-total"></div>
+                
+                <div class="form-group">
+                    <label>Tipo de Combustível</label>
+                    <select id="fuel-type">
+                        <option value="Gasolina Comum">Gasolina Comum</option>
+                        <option value="Gasolina Aditivada">Gasolina Aditivada</option>
+                        <option value="Etanol">Etanol</option>
+                        <option value="Diesel Comum">Diesel Comum</option>
+                        <option value="Diesel S10">Diesel S10</option>
+                        <option value="Arla 32">Arla 32</option>
+                    </select>
+                </div>
+                
                 <label style="display:flex; align-items:center; gap:5px; margin-bottom:15px"><input type="checkbox" id="fuel-full"> Tanque Cheio?</label>
                 <button onclick="App.submitFuel()">Salvar Abastecimento</button>
             `;
@@ -535,9 +549,10 @@ const App = {
         const val = parseFloat(document.getElementById('fuel-val').value);
         const liters = parseFloat(document.getElementById('fuel-liters').value);
         const total = document.getElementById('fuel-total').value;
-        if (isNaN(val) || isNaN(liters) || !App.currentPhoto) return alert("Preencha tudo!");
+        const type = document.getElementById('fuel-type').value;
+        if (isNaN(val) || isNaN(liters) || !App.currentPhoto) return alert("Preencha tudo e tire a foto!");
         try {
-            manager.data.fuelLogs.push({ id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total, isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
+            manager.data.fuelLogs.push({ id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total, fuelType: type, isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
             const vIdx = manager.data.vehicles.findIndex(v => v.id == vId);
             if (val > (manager.data.vehicles[vIdx].lastVal || 0)) manager.data.vehicles[vIdx].lastVal = val;
             await manager.saveData();
@@ -603,12 +618,12 @@ const App = {
         let h = `<h4 style="margin-bottom:8px">⛽ Abastecimentos</h4>`;
         h += `<div class="log-table-wrap">`;
         h += `<table class="log-table"><thead><tr>
-            <th>Data</th><th>Veículo</th><th>Motorista</th><th>KM/h</th><th>Litros</th><th>R$</th>
+            <th>Data</th><th>Veículo</th><th>Motorista</th><th>KM/h</th><th>Tipo</th><th>Litros</th><th>R$</th>
             <th>KM De</th><th>KM Até</th><th>Data De</th><th>Data Até</th>
             <th>Média Abast.</th><th>Média Hist.</th>
         </tr></thead><tbody>`;
         if (fuel.length === 0) {
-            h += `<tr><td colspan="12" style="text-align:center;color:var(--text-muted)">Nenhum registro</td></tr>`;
+            h += `<tr><td colspan="13" style="text-align:center;color:var(--text-muted)">Nenhum registro</td></tr>`;
         } else {
             h += fuel.map(l => {
                 const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
@@ -619,6 +634,7 @@ const App = {
                     <td>${v?.name || '—'}</td>
                     <td>${d?.name || '—'}</td>
                     <td>${l.val}</td>
+                    <td>${l.fuelType || '—'}</td>
                     <td>${l.liters}</td>
                     <td>R$ ${l.total}</td>
                     <td>${m.periodFrom}</td>
