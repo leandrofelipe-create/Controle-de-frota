@@ -425,11 +425,10 @@ const App = {
             container.innerHTML = `
                 ${lastValLabel}
                 <div class="form-group"><label>KM/Horas Atual</label><input type="number" id="fuel-val" value="${vehicle.lastVal || 0}"></div>
-                <div id="ai-status"></div>
                 
                 <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
-                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview', true)">
-                    <span id="photo-preview-text">📸 Tirar Foto Comprovante (IA)</span>
+                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
+                    <span id="photo-preview-text">📸 Tirar Foto Comprovante</span>
                 </label>
                 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px">
@@ -456,7 +455,7 @@ const App = {
         }
     },
 
-    handlePhotoUpload(event, previewId, processIA = false) {
+    handlePhotoUpload(event, previewId) {
         const file = event.target.files[0];
         if (!file) return;
         const reader = new FileReader();
@@ -477,24 +476,10 @@ const App = {
                     preview.innerHTML = `<img src="${dataUrl}" style="width:100%; height:100%; object-fit:cover; border-radius: var(--radius)">`;
                 }
                 App.currentPhoto = dataUrl; // Salva o Base64 real no state
-
-                if (processIA) {
-                    App.processReceiptIA_Trigger();
-                }
             };
             img.src = e.target.result;
         };
         reader.readAsDataURL(file);
-    },
-
-    async processReceiptIA_Trigger() {
-        const s = document.getElementById('ai-status');
-        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--accent)'>Interpretando comprovante pela IA...</p>";
-        const data = await manager.simulateAIScan();
-        document.getElementById('fuel-liters').value = data.liters;
-        document.getElementById('fuel-price-l').value = data.pricePerLiter;
-        document.getElementById('fuel-total').value = data.total;
-        if (s) s.innerHTML = "<p style='font-size:0.7rem; color:var(--success)'>✓ Dados extraídos da foto!</p>";
     },
 
     calcFuelTotal() {
