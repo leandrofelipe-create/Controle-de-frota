@@ -37,6 +37,7 @@ class FleetManager {
                     this.data = cloudData;
                     if (!this.data.usageLogs) this.data.usageLogs = [];
                     if (!this.data.fuelLogs) this.data.fuelLogs = [];
+                    if (!this.data.activeSessions) this.data.activeSessions = {};
                 } else {
                     this.data = {
                         vehicles: [
@@ -50,10 +51,13 @@ class FleetManager {
                         ],
                         usageLogs: [],
                         fuelLogs: [],
-                        currentUser: null
+                        activeSessions: {}
                     };
                     this.saveData();
                 }
+
+                App.localUser = parseInt(localStorage.getItem('fleet_user_id')) || null;
+
                 localStorage.setItem(DB_KEY, JSON.stringify(this.data));
                 if (window.App) {
                     if (window.App.currentView) {
@@ -217,9 +221,9 @@ const App = {
         App.currentProps = props;
         const root = document.getElementById('app');
         if (!manager.data) return;
-        if (!manager.data.currentUser && view !== App.views.Login) return App.render(App.views.Login);
+        if (!App.localUser && view !== App.views.Login) return App.render(App.views.Login);
 
-        const user = manager.data.drivers.find(d => d.id == manager.data.currentUser);
+        const user = manager.data.drivers.find(d => d.id == App.localUser);
         const headerHtml = `
             <div class="logo-container">
                 <img src="${LOGO_URL}" alt="Essencio" class="logo-main" onclick="App.render(App.views.Dashboard)" style="cursor:pointer">
@@ -245,7 +249,7 @@ const App = {
             </div>
         `,
         Dashboard: () => {
-            const user = manager.data.drivers.find(d => d.id == manager.data.currentUser);
+            const user = manager.data.drivers.find(d => d.id == App.localUser);
             const isAdmin = user?.isAdmin || user?.name === 'Leandro Felipe';
             return `
             <div class="container slide-up">
@@ -260,7 +264,7 @@ const App = {
                     </div>
                 </header>
                 <div style="display:grid; gap: 12px">
-                    ${manager.data.currentSession ?
+                    ${manager.data.activeSessions[App.localUser] ?
                     `<button onclick="App.render(App.views.CheckOut)" class="danger">Finalizar Expediente</button>` :
                     `<button onclick="App.render(App.views.CheckIn)">Iniciar Check-in</button>`
                 }
@@ -285,7 +289,7 @@ const App = {
             </div>
         `,
         CheckOut: () => {
-            const session = manager.data.currentSession;
+            const session = manager.data.activeSessions[App.localUser];
             const vehicle = manager.data.vehicles.find(v => v.id == session.vehicleId);
             return `
             <div class="container slide-up">
@@ -352,8 +356,8 @@ const App = {
         // Se senha foi apagada pelo admin, qualquer entrada no campo é aceita
         // e usuário é direcionado para definir nova senha
         if (user?.password === '' || user?.password === null) {
-            manager.data.currentUser = id;
-            manager.saveData();
+            App.localUser = id;
+            localStorage.setItem('fleet_user_id', id);
             alert('Sua senha foi redefinida. Por favor, cadastre uma nova senha.');
             App.render(App.views.ChangePassword);
             return;
@@ -362,19 +366,23 @@ const App = {
         const userPass = user?.password || 'Essencio123';
         if (pass !== userPass) return alert('Senha de acesso incorreta para este usuário!');
 
-        manager.data.currentUser = id;
-        manager.saveData();
+        App.localUser = id;
+        localStorage.setItem('fleet_user_id', id);
         App.render(App.views.Dashboard);
     },
 
     logout() {
-        if (confirm("Sair?")) { manager.data.currentUser = null; App.render(App.views.Login); }
+        if (confirm("Sair?")) {
+            App.localUser = null;
+            localStorage.removeItem('fleet_user_id');
+            App.render(App.views.Login);
+        }
     },
 
     async submitChangePassword() {
         const newPass = document.getElementById('new-self-pass').value;
         if (newPass.length < 4) return alert("Senha muito curta!");
-        const uIdx = manager.data.drivers.findIndex(d => d.id == manager.data.currentUser);
+        const uIdx = manager.data.drivers.findIndex(d => d.id == App.localUser);
         if (uIdx !== -1) {
             manager.data.drivers[uIdx].password = newPass;
             await manager.saveData();
@@ -497,14 +505,14 @@ const App = {
         if (vehicle.type === 'car' && val < (vehicle.lastVal || 0)) {
             return alert(`⚠️ KM inválido!\nO KM informado (${val}) é menor que o último registro (${vehicle.lastVal}).\nVerifique e informe o KM correto.`);
         }
-        manager.data.currentSession = { id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, startTime: new Date().toISOString(), startVal: val, startPhoto: App.currentPhoto };
+        manager.data.activeSessions[App.localUser] = { id: Date.now(), driverId: App.localUser, vehicleId: vId, startTime: new Date().toISOString(), startVal: val, startPhoto: App.currentPhoto };
         await manager.saveData();
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
 
     async submitCheckOut(event) {
-        const session = manager.data.currentSession;
+        const session = manager.data.activeSessions[App.localUser];
         const vehicle = manager.data.vehicles.find(v => v.id == session.vehicleId);
         let val;
         if (vehicle.type === 'boat') {
@@ -513,6 +521,9 @@ const App = {
         } else val = parseFloat(document.getElementById('end-val').value);
 
         if (isNaN(val) || !App.currentPhoto) return alert("Preencha o KM e tire a foto!");
+        if (vehicle.type === 'car' && val < session.startVal) {
+            return alert(`⚠️ KM inválido!\nO KM Final (${val}) é menor que o KM Inicial do check-in (${session.startVal}).`);
+        }
 
         const btn = document.getElementById('btn-checkout') || event.target;
         btn.disabled = true;
@@ -522,7 +533,7 @@ const App = {
             manager.data.usageLogs.push({ ...session, id: Date.now(), endTime: new Date().toISOString(), endVal: val, sessionDiff: (val - session.startVal).toFixed(2), endPhoto: App.currentPhoto });
             const vIdx = manager.data.vehicles.findIndex(v => v.id == session.vehicleId);
             if (vIdx !== -1) manager.data.vehicles[vIdx].lastVal = val;
-            manager.data.currentSession = null;
+            delete manager.data.activeSessions[App.localUser];
             await manager.saveData();
             App.currentPhoto = null;
             App.render(App.views.Dashboard);
@@ -536,8 +547,14 @@ const App = {
         const total = document.getElementById('fuel-total').value;
         const type = document.getElementById('fuel-type').value;
         if (isNaN(val) || isNaN(liters) || !App.currentPhoto) return alert("Preencha tudo e tire a foto!");
+
+        const vehicle = manager.data.vehicles.find(v => v.id == vId);
+        if (vehicle && vehicle.type === 'car' && val < (vehicle.lastVal || 0)) {
+            return alert(`⚠️ KM inválido!\nO KM informado (${val}) é menor que o último registro (${vehicle.lastVal}).\nVerifique e informe o KM correto.`);
+        }
+
         try {
-            manager.data.fuelLogs.push({ id: Date.now(), driverId: manager.data.currentUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total, fuelType: type, isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
+            manager.data.fuelLogs.push({ id: Date.now(), driverId: App.localUser, vehicleId: vId, date: new Date().toISOString(), val, liters, total, fuelType: type, isFull: document.getElementById('fuel-full').checked, photo: App.currentPhoto });
             const vIdx = manager.data.vehicles.findIndex(v => v.id == vId);
             if (val > (manager.data.vehicles[vIdx].lastVal || 0)) manager.data.vehicles[vIdx].lastVal = val;
             await manager.saveData();
