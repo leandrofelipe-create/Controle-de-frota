@@ -22,7 +22,7 @@ if (!firebase.apps.length) {
 const db = firebase.database();
 
 const LOGO_URL = "https://www.essencio.com.br/wp-content/uploads/2024/05/Essencio_principal-2024-1-1024x225.png";
-const VERSION = '1.6.6';
+const VERSION = '1.6.5';
 
 class FleetManager {
     constructor() {
@@ -113,52 +113,6 @@ const App = {
 
     updateSyncStatus() {
         // Implementação visual se necessário
-    },
-
-    async captureAndShare(elementSelector, shareText) {
-        try {
-            const el = document.querySelector(elementSelector);
-            if (!el) return;
-            
-            // Ocultar botões temporariamente para o print
-            const btns = el.querySelectorAll('button');
-            const originalDisplays = [];
-            btns.forEach(b => {
-                originalDisplays.push(b.style.display);
-                b.style.display = 'none';
-            });
-            
-            const canvas = await html2canvas(el, { scale: 2 });
-            
-            // Restaurar botões
-            btns.forEach((b, i) => b.style.display = originalDisplays[i]);
-            
-            return new Promise((resolve) => {
-                canvas.toBlob(async (blob) => {
-                    if (!blob) return resolve();
-                    const file = new File([blob], "registro.png", { type: "image/png" });
-                    
-                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-                        try {
-                            await navigator.share({
-                                title: 'Controle de Frota',
-                                text: shareText,
-                                files: [file]
-                            });
-                        } catch(err) {
-                            console.log("Compartilhamento cancelado/falhou:", err);
-                        }
-                    } else {
-                        alert("Dispositivo não suporta envio de imagem direta. O WhatsApp abrirá apenas com o texto.");
-                        const waLink = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-                        window.open(waLink, '_blank');
-                    }
-                    resolve();
-                }, 'image/png');
-            });
-        } catch(e) {
-            console.error("Erro no print da tela:", e);
-        }
     },
 
     render(view, props = {}) {
@@ -291,7 +245,7 @@ const App = {
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 App.currentPhoto = canvas.toDataURL('image/jpeg', 0.7);
                 const preview = document.getElementById(previewId);
-                if (preview) preview.innerHTML = `<img src="${App.currentPhoto}" style="width:100%; height:auto; border-radius:8px">`;
+                if (preview) preview.innerHTML = `<img src="${App.currentPhoto}" style="width:100%; height:80px; object-fit:cover; border-radius:8px">`;
             };
             img.src = e.target.result;
         };
@@ -317,12 +271,6 @@ const App = {
             startLat: gps?.lat || null, startLng: gps?.lng || null 
         };
         await manager.saveData();
-        
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const vec = manager.data.vehicles.find(vec => vec.id == vId);
-        const msg = `🚗 Check-in: ${vec.name}\n👤 Condutor: ${d.name}\n📍 Saída: ${local}\n🧭 KM Inicial: ${val}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
@@ -332,19 +280,15 @@ const App = {
         const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
         const endVal = v.type === 'boat' ? (parseFloat(session.startVal) + ((new Date() - new Date(session.startTime)) / 3600000)).toFixed(2) : parseFloat(document.getElementById('end-val').value);
         
-        const localInput = document.getElementById('end-local');
-        const descInput = document.getElementById('end-desc');
-        const local = localInput ? localInput.value : "—";
-        const desc = descInput ? descInput.value : "—";
-
-        if (!App.currentPhoto || isNaN(endVal) || !local) return alert("Tire a foto e preencha todos os campos!");
+        if (!App.currentPhoto || isNaN(endVal)) return alert("Tire a foto e preencha o valor!");
         
+        const local = prompt("Local de Chegada:") || "—";
         const gps = await App.getGPS();
         
         manager.data.usageLogs.push({ 
             ...session, endTime: new Date().toISOString(), endVal, endPhoto: App.currentPhoto, 
             endLocal: local, endLat: gps?.lat || null, endLng: gps?.lng || null,
-            sessionDiff: (endVal - session.startVal).toFixed(2), description: desc
+            sessionDiff: (endVal - session.startVal).toFixed(2)
         });
         
         const vIdx = manager.data.vehicles.findIndex(vec => vec.id == v.id);
@@ -352,48 +296,6 @@ const App = {
         
         delete manager.data.activeSessions[App.localUser];
         await manager.saveData();
-
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const msg = `🛑 Check-out: ${v.name}\n👤 Condutor: ${d.name}\n📍 Chegada: ${local}\n🧭 KM Final: ${endVal}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
-        App.currentPhoto = null;
-        App.render(App.views.Dashboard);
-    },
-
-    async submitSegment() {
-        const session = manager.data.activeSessions[App.localUser];
-        const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-        const endVal = parseFloat(document.getElementById('seg-end-val').value);
-        const local = document.getElementById('seg-local').value;
-        const desc = document.getElementById('seg-desc')?.value || '—';
-        
-        if (!App.currentPhoto || isNaN(endVal) || !local) return alert("Preencha todos os campos e tire a foto!");
-        
-        const gps = await App.getGPS();
-        
-        manager.data.usageLogs.push({ 
-            ...session, endTime: new Date().toISOString(), endVal, endPhoto: App.currentPhoto, 
-            endLocal: local, endLat: gps?.lat || null, endLng: gps?.lng || null,
-            sessionDiff: (endVal - session.startVal).toFixed(2), description: desc
-        });
-        
-        const vIdx = manager.data.vehicles.findIndex(vec => vec.id == v.id);
-        manager.data.vehicles[vIdx].lastVal = endVal;
-        
-        // START NEW SEGMENT SEAMLESSLY
-        manager.data.activeSessions[App.localUser] = {
-            id: Date.now(), driverId: App.localUser, vehicleId: session.vehicleId, startTime: new Date().toISOString(),
-            startVal: endVal, startPhoto: App.currentPhoto, startLocal: local,
-            startLat: gps?.lat || null, startLng: gps?.lng || null
-        };
-        
-        await manager.saveData();
-        
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const msg = `🔄 Nova Movimentação: ${v.name}\n👤 Condutor: ${d.name}\n📍 Chegada: ${local}\n🧭 KM: ${endVal}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
@@ -480,7 +382,7 @@ const App = {
         
         let h = `<h4>⛽ Abastecimentos</h4><div class="log-table-wrap"><table class="log-table"><thead><tr>
             <th>Data</th><th>Veículo</th><th>Motorista</th><th>KM/h</th><th>Tipo</th><th>Litros</th><th>R$</th>
-            <th>KM De</th><th>KM Até</th><th>Data De</th><th>Data Até</th><th>Média Abast.</th><th>Média Hist.</th><th>Ações</th>
+            <th>KM De</th><th>KM Até</th><th>Data De</th><th>Data Até</th><th>Média Abast.</th><th>Média Hist.</th><th>Mapa</th>
         </tr></thead><tbody>`;
         
         h += fuel.map(l => {
@@ -502,92 +404,33 @@ const App = {
                 <td>${m.dateTo}</td>
                 <td>${m.avgThis} ${m.unit}</td>
                 <td>${m.avgHistoric} ${m.unit}</td>
-                <td>
-                    ${map}
-                    <button class="secondary btn-small" onclick="App.editFuelLog('${l.id}')">✏️</button>
-                    <button class="danger btn-small" onclick="App.deleteFuelLog('${l.id}')">🗑️</button>
-                </td>
+                <td>${map}</td>
             </tr>`;
         }).join('');
         h += `</tbody></table></div>`;
         
         h += `<h4 style="margin-top:20px">🚗 Uso</h4><div class="log-table-wrap"><table class="log-table"><thead><tr>
-            <th>Veículo</th><th>Motorista</th><th>Local Saída</th><th>Início</th><th>Local Chegada</th><th>Fim</th><th>KM Percorrido</th><th>Desc</th><th>Ações</th>
+            <th>Veículo</th><th>Motorista</th><th>Local Saída</th><th>Mapa Saída</th><th>Início</th><th>Local Chegada</th><th>Mapa Chegada</th><th>Fim</th><th>KM/h Percorrido</th>
         </tr></thead><tbody>`;
         h += usage.map(l => {
             const v = manager.data.vehicles.find(v => v.id == l.vehicleId);
             const d = manager.data.drivers.find(d => d.id == l.driverId);
-            const ms = l.startLat ? `<button class="secondary btn-small" onclick="App.showMap(${l.startLat},${l.startLng})">🗺️</button>` : '';
-            const me = l.endLat ? `<button class="secondary btn-small" onclick="App.showMap(${l.endLat},${l.endLng})">🗺️</button>` : '';
+            const ms = l.startLat ? `<button class="secondary btn-small" onclick="App.showMap(${l.startLat},${l.startLng})">🗺️</button>` : '—';
+            const me = l.endLat ? `<button class="secondary btn-small" onclick="App.showMap(${l.endLat},${l.endLng})">🗺️</button>` : '—';
             return `<tr>
                 <td>${v?.name || '—'}</td>
                 <td>${d?.name || '—'}</td>
-                <td>${l.startLocal || '—'} ${ms}</td>
+                <td>${l.startLocal || '—'}</td>
+                <td>${ms}</td>
                 <td>${new Date(l.startTime).toLocaleString()}</td>
-                <td>${l.endLocal || '—'} ${me}</td>
+                <td>${l.endLocal || '—'}</td>
+                <td>${me}</td>
                 <td>${new Date(l.endTime).toLocaleString()}</td>
                 <td>${l.sessionDiff}</td>
-                <td>${l.description || ''}</td>
-                <td>
-                    <button class="secondary btn-small" onclick="App.editUsageLog('${l.id}')">✏️</button>
-                    <button class="danger btn-small" onclick="App.deleteUsageLog('${l.id}')">🗑️</button>
-                </td>
             </tr>`;
         }).join('');
         h += `</tbody></table></div>`;
         return h;
-    },
-
-    async editFuelLog(logId) {
-        const idx = manager.data.fuelLogs.findIndex(l => l.id == logId);
-        if(idx === -1) return;
-        const l = manager.data.fuelLogs[idx];
-        const val = prompt("Editar KM do Abastecimento:", l.val);
-        if(val === null) return;
-        const liters = prompt("Editar Litros Abastecidos:", l.liters);
-        if(liters === null) return;
-        const total = prompt("Editar Valor Total (R$):", l.total);
-        if(total === null) return;
-        
-        manager.data.fuelLogs[idx] = { ...l, val: parseFloat(val), liters: parseFloat(liters), total: parseFloat(total) };
-        await manager.saveData();
-        App.switchAdminTab('logs');
-    },
-
-    async editUsageLog(logId) {
-        const idx = manager.data.usageLogs.findIndex(l => l.id == logId);
-        if(idx === -1) return;
-        const l = manager.data.usageLogs[idx];
-        
-        const sVal = prompt("Editar KM Inicial do trecho:", l.startVal);
-        if(sVal === null) return;
-        const eVal = prompt("Editar KM Final do trecho:", l.endVal);
-        if(eVal === null) return;
-        const desc = prompt("Editar Descrição / Observação:", l.description || "");
-        
-        manager.data.usageLogs[idx] = { 
-            ...l, 
-            startVal: parseFloat(sVal), 
-            endVal: parseFloat(eVal), 
-            sessionDiff: (parseFloat(eVal) - parseFloat(sVal)).toFixed(2),
-            description: desc !== null ? desc : l.description
-        };
-        await manager.saveData();
-        App.switchAdminTab('logs');
-    },
-
-    async deleteFuelLog(logId) {
-         if(!confirm("Tem certeza que deseja EXCLUIR permanentemente este registro de abastecimento?")) return;
-         manager.data.fuelLogs = manager.data.fuelLogs.filter(l => l.id != logId);
-         await manager.saveData();
-         App.switchAdminTab('logs');
-    },
-
-    async deleteUsageLog(logId) {
-         if(!confirm("Tem certeza que deseja EXCLUIR permanentemente este registro de uso/movimentação?")) return;
-         manager.data.usageLogs = manager.data.usageLogs.filter(l => l.id != logId);
-         await manager.saveData();
-         App.switchAdminTab('logs');
     },
 
     renderAdminSessions() {
@@ -603,224 +446,11 @@ const App = {
         return h;
     },
 
-    renderAdminVehicles() { 
-        let h = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h4>Veículos</h4>
-                    <button class="btn-small" onclick="App.showAddVehicleModal()">+ Novo Veículo</button>
-                 </div><ul class="admin-list">`;
-        h += manager.data.vehicles.map(v => 
-            `<li style="display:flex; justify-content:space-between; align-items:center;">
-                <span>${v.name} (${v.type}) - KM/H: ${v.lastVal}</span>
-                <div style="display:flex; gap:5px;">
-                   <button class="secondary btn-small" onclick="App.showExportModal('${v.id}')">📊 Boletim</button>
-                   <button class="danger btn-small" onclick="App.deleteVehicle('${v.id}')">🗑️</button>
-                </div>
-            </li>`
-        ).join('');
-        return h + `</ul>`; 
-    },
-    renderAdminDrivers() { 
-        let h = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h4>Usuários</h4>
-                    <button class="btn-small" onclick="App.showAddDriverModal()">+ Novo Usuário</button>
-                 </div><ul class="admin-list">`;
-        h += manager.data.drivers.map(d => 
-            `<li style="display:flex; flex-direction:column; gap:5px; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
-                 <span style="font-weight:bold">${d.name} ${d.isAdmin ? '<span style="color:var(--accent); font-size:0.8rem">(Admin)</span>' : ''}</span>
-                 <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin-top:5px;">
-                     <button class="secondary btn-small" onclick="App.showDriverVehiclesModal('${d.id}')">🚗 Liberar Veículos</button>
-                     <button class="secondary btn-small" onclick="App.resetPassword('${d.id}')">🔑 Zerar Senha</button>
-                     <button class="danger btn-small" onclick="App.deleteDriver('${d.id}')">🗑️</button>
-                 </div>
-             </li>`
-        ).join('');
-        return h + `</ul>`; 
-    },
-
-    async resetPassword(id) {
-        if(confirm("Deseja resetar a senha deste usuário para 'Essencio123'?")) {
-            const dIdx = manager.data.drivers.findIndex(d => d.id == id);
-            if(dIdx !== -1) {
-                manager.data.drivers[dIdx].password = "Essencio123";
-                await manager.saveData();
-                alert("Senha resetada com sucesso para: Essencio123");
-            }
-        }
-    },
-
-    showDriverVehiclesModal(id) {
-        const d = manager.data.drivers.find(d => d.id == id);
-        const allowed = d.allowedVehicles || [];
-        
-        const html = `
-            <h3>Veículos Permitidos</h3>
-            <p><strong>${d.name}</strong> poderá ver apenas:</p>
-            <div style="text-align:left; margin-bottom:15px; max-height: 250px; overflow-y:auto; border: 1px solid var(--border); padding: 10px; border-radius: 8px;">
-                ${manager.data.vehicles.map(v => `
-                    <label style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
-                        <input type="checkbox" class="veh-allow-cb" value="${v.id}" ${allowed.includes(v.id.toString()) || allowed.includes(v.id) ? 'checked' : ''}>
-                        ${v.name}
-                    </label>
-                `).join('')}
-            </div>
-            <p style="font-size:0.8rem; color:var(--text-muted); text-align:left; margin-bottom:15px; line-height:1.2">
-                * Se TODOS estiverem desmarcados, ele poderá ver TODOS os veículos do sistema livremente.
-            </p>
-            <button onclick="App.saveDriverVehicles('${id}')">Salvar Permissões</button>
-        `;
-        App.showModal(html);
-    },
-    
-    async saveDriverVehicles(id) {
-        const dIdx = manager.data.drivers.findIndex(d => d.id == id);
-        if(dIdx === -1) return;
-        
-        const cbs = document.querySelectorAll('.veh-allow-cb:checked');
-        const allowed = Array.from(cbs).map(cb => cb.value);
-        
-        manager.data.drivers[dIdx].allowedVehicles = allowed;
-        await manager.saveData();
-        App.closeModal();
-        App.switchAdminTab('drivers');
-    },
-
-    showAddVehicleModal() {
-        App.showModal(`
-            <h3>Adicionar Veículo</h3>
-            <div class="form-group"><label>Nome (Marca/Placa)</label><input type="text" id="add-veh-name"></div>
-            <div class="form-group"><label>Tipo</label><select id="add-veh-type"><option value="car">Carro (KM)</option><option value="boat">Barco (Horas)</option></select></div>
-            <div class="form-group"><label>KM/Horas Inicial</label><input type="number" id="add-veh-val" value="0"></div>
-            <button onclick="App.addVehicle()">Salvar Veículo</button>
-        `);
-    },
-    async addVehicle() {
-        const name = document.getElementById('add-veh-name').value;
-        const type = document.getElementById('add-veh-type').value;
-        const val = parseFloat(document.getElementById('add-veh-val').value) || 0;
-        if (!name) return alert("Preencha o nome!");
-        manager.data.vehicles.push({ id: Date.now().toString(), name, type, lastVal: val });
-        await manager.saveData();
-        App.closeModal();
-        App.switchAdminTab('vehicles');
-    },
-    async deleteVehicle(id) {
-        if(confirm("Desativar/Deletar este veículo permanentemente?")) {
-            manager.data.vehicles = manager.data.vehicles.filter(v => v.id != id);
-            await manager.saveData();
-            App.switchAdminTab('vehicles');
-        }
-    },
-
-    showAddDriverModal() {
-        App.showModal(`
-            <h3>Adicionar Usuário / Motorista</h3>
-            <div class="form-group"><label>Nome</label><input type="text" id="add-drv-name"></div>
-            <div class="form-group"><label>Senha Provisória</label><input type="text" id="add-drv-pw" value="Essencio123"></div>
-            <label style="display:flex; align-items:center; gap:5px; margin-top:10px; margin-bottom:15px;">
-               <input type="checkbox" id="add-drv-admin"> Conceder acesso Administrador?
-            </label>
-            <button onclick="App.addDriver()">Salvar Usuário</button>
-        `);
-    },
-    async addDriver() {
-        const name = document.getElementById('add-drv-name').value;
-        const pass = document.getElementById('add-drv-pw').value;
-        const isAdmin = document.getElementById('add-drv-admin').checked;
-        if (!name || !pass) return alert("Preencha o nome e senha!");
-        manager.data.drivers.push({ id: Date.now().toString(), name, password: pass, isAdmin });
-        await manager.saveData();
-        App.closeModal();
-        App.switchAdminTab('drivers');
-    },
-    async deleteDriver(id) {
-        if(confirm("Deletar este usuário do sistema permanentemente?")) {
-            manager.data.drivers = manager.data.drivers.filter(d => d.id != id);
-            await manager.saveData();
-            App.switchAdminTab('drivers');
-        }
-    },
+    renderAdminVehicles() { return `<h4>Veículos</h4><ul class="admin-list">${manager.data.vehicles.map(v => `<li>${v.name} (${v.type}) - KM/H: ${v.lastVal}</li>`).join('')}</ul>`; },
+    renderAdminDrivers() { return `<h4>Usuários</h4><ul class="admin-list">${manager.data.drivers.map(d => `<li>${d.name} ${d.isAdmin ? '(Admin)' : ''}</li>`).join('')}</ul>`; },
 
     async forceCloseSession(uId) {
         if(confirm("Encerrar sessão forçadamente?")) { delete manager.data.activeSessions[uId]; await manager.saveData(); App.switchAdminTab('sessions'); }
-    },
-
-    showExportModal(vehicleId) {
-        const v = manager.data.vehicles.find(v => v.id == vehicleId);
-        const tf = new Date().toISOString().split('T')[0];
-        const ti = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        App.showModal(`
-            <h3>Boletim: ${v.name}</h3>
-            <p>Selecione o período do relatório:</p>
-            <div class="form-group"><label>Data Inicial</label><input type="date" id="exp-start" value="${ti}"></div>
-            <div class="form-group"><label>Data Final</label><input type="date" id="exp-end" value="${tf}"></div>
-            <button onclick="App.exportExcel('${vehicleId}')">Gerar Planilha em Excel</button>
-        `);
-    },
-
-    async exportExcel(vehicleId) {
-        const v = manager.data.vehicles.find(v => v.id == vehicleId);
-        
-        const dStart = document.getElementById('exp-start') ? new Date(document.getElementById('exp-start').value + 'T00:00:00').getTime() : 0;
-        const dEnd = document.getElementById('exp-end') ? new Date(document.getElementById('exp-end').value + 'T23:59:59').getTime() : Date.now();
-        
-        App.closeModal();
-
-        const logs = (manager.data.usageLogs || []).filter(l => l.vehicleId == vehicleId && new Date(l.startTime).getTime() >= dStart && new Date(l.endTime).getTime() <= dEnd).sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-        const fuels = manager.data.fuelLogs || [];
-
-        const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet('Boletim Diário');
-
-        ws.columns = [
-            { header: 'DIA', key: 'dia', width: 12 },
-            { header: 'CONDUTOR', key: 'condutor', width: 25 },
-            { header: 'HORA PART.', key: 'horaPart', width: 15 },
-            { header: 'KM INICIAL', key: 'kmInicial', width: 15 },
-            { header: 'PERCURSO PARTIDA', key: 'partida', width: 30 },
-            { header: 'PERCURSO CHEGADA', key: 'chegada', width: 30 },
-            { header: 'DESCRIÇÃO', key: 'desc', width: 35 },
-            { header: 'HORA CHEGADA', key: 'horaChegada', width: 15 },
-            { header: 'KM FINAL', key: 'kmFinal', width: 15 },
-            { header: 'KM ABAST.', key: 'kmAbast', width: 15 },
-            { header: 'LITROS', key: 'litros', width: 15 },
-            { header: 'VALOR', key: 'valor', width: 15 }
-        ];
-
-        ws.getRow(1).font = { bold: true };
-        ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
-
-        logs.forEach(l => {
-            const d = manager.data.drivers.find(d => d.id == l.driverId);
-            const dateObj = new Date(l.startTime);
-            const dia = dateObj.toLocaleDateString('pt-BR');
-            const horaP = dateObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
-            const horaC = new Date(l.endTime).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
-
-            let kmAbast = "", litros = "", valor = "";
-            let relatedFuel = fuels.filter(f => f.vehicleId == vehicleId && f.val >= l.startVal && f.val <= l.endVal && new Date(f.date).toLocaleDateString('pt-BR') === dia);
-            if(relatedFuel.length > 0) {
-                kmAbast = relatedFuel[0].val;
-                litros = relatedFuel[0].liters;
-                valor = relatedFuel[0].total;
-            }
-
-            ws.addRow({
-                dia, condutor: d?.name || '—', horaPart: horaP, kmInicial: l.startVal,
-                partida: l.startLocal || '—', chegada: l.endLocal || '—', desc: l.description || '—',
-                horaChegada: horaC, kmFinal: l.endVal, kmAbast, litros, valor
-            });
-        });
-
-        const buf = await wb.xlsx.writeBuffer();
-        const blob = new Blob([buf], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Boletim_Diario_${v.name.replace(/\s+/g, '_')}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
     },
 
     // --- VIEWS ---
@@ -856,108 +486,54 @@ const App = {
                 <div style="display:grid; gap:12px">
                     ${active ? 
                         `<div class="card" style="background:var(--accent-light); border: 2px solid var(--accent)">
-                            <h3 style="margin-bottom:10px;">Veículo sob sua posse</h3>
-                            <button onclick="App.render(App.views.SegmentView)">Nova Movimentação (Check-in)</button>
-                            <button class="danger" onclick="App.render(App.views.CheckOutView)" style="margin-top:10px;">Encerrar o Dia (Devolver)</button>
+                            <h3>Sessão Ativa</h3>
+                            <button class="danger" onclick="App.render(App.views.CheckOutView)">Finalizar Uso do Veículo</button>
                         </div>` :
-                        `<button onclick="App.render(App.views.CheckInView)">Iniciar Retirada (Check-in)</button>`
+                        `<button onclick="App.render(App.views.CheckInView)">Iniciar Check-in</button>`
                     }
                     <button class="secondary" onclick="App.render(App.views.FuelView)">⛽ Registrar Abastecimento</button>
                     ${(user?.isAdmin || user?.name === 'Leandro Felipe') ? `<button class="secondary" onclick="App.render(App.views.AdminPanel)">📊 Painel Administrativo</button>` : ''}
                 </div>
             </div>
         `},
-        SegmentView: () => {
-            const session = manager.data.activeSessions[App.localUser];
-            const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
-            return `
+        CheckInView: () => `
             <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Nova Movimentação</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
-                <p>Veículo: <strong>${v.name}</strong></p>
-                <div class="form-group"><label>KM / Horas Final (Trecho Concluído)</label><input type="number" id="seg-end-val"></div>
-                <div class="form-group"><label>Local de Chegada (É a sua nova Saída)</label><input type="text" id="seg-local" placeholder="Ex: Obra 2..."></div>
-                <div class="form-group"><label>Motivo / Descrição</label><input type="text" id="seg-desc" placeholder="Ex: Ida ao cliente"></div>
-                <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
-                    <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
-                    <span id="photo-preview-text">📸 Tirar Foto</span>
-                </label>
-                <button onclick="App.submitSegment()">Registrar Deslocamento</button>
-            </div>
-            `;
-        },
-        CheckInView: () => {
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
-            const canSee = (v) => (!user.allowedVehicles || user.allowedVehicles.length === 0 || user.allowedVehicles.includes(v.id.toString()) || user.allowedVehicles.includes(v.id));
-            const availableVehicles = manager.data.vehicles.filter(canSee);
-            
-            return `
-            <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Check-in</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Check-in</h1>
                 <select id="vehicle-select" onchange="App.handleVehicleChange(this.value, 'checkin-fields')">
                     <option value="">Selecione o veículo</option>
-                    ${availableVehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
+                    ${manager.data.vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
                 </select>
                 <div id="checkin-fields"></div>
             </div>
-            `;
-        },
+        `,
         CheckOutView: () => {
             const session = manager.data.activeSessions[App.localUser];
             const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
             return `
             <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Check-out</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Check-out</h1>
                 <p>Veículo: <strong>${v.name}</strong></p>
                 ${v.type === 'car' ? '<div class="form-group"><label>KM Final</label><input type="number" id="end-val"></div>' : '<p>Horas calculadas automaticamente.</p>'}
-                <div class="form-group"><label>Local de Chegada (Devolução)</label><input type="text" id="end-local" placeholder="Ex: Sede, Garagem..."></div>
-                <div class="form-group"><label>Motivo / Observação</label><input type="text" id="end-desc" placeholder="Ex: Fim do expediente"></div>
                 <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
                     <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
                     <span id="photo-preview-text">📸 Tirar Foto Final</span>
                 </label>
-                <button class="danger" onclick="App.submitCheckOut()">Finalizar e Sincronizar</button>
+                <button onclick="App.submitCheckOut()">Finalizar e Sincronizar</button>
             </div>
         `},
-        FuelView: () => {
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
-            const canSee = (v) => (!user.allowedVehicles || user.allowedVehicles.length === 0 || user.allowedVehicles.includes(v.id.toString()) || user.allowedVehicles.includes(v.id));
-            const availableVehicles = manager.data.vehicles.filter(canSee);
-            
-            return `
+        FuelView: () => `
             <div class="container slide-up">
                 <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
                 <h1>Abastecimento</h1>
                 <select id="fuel-vehicle-select" onchange="App.handleVehicleChange(this.value, 'fuel-form-fields')">
                     <option value="">Selecione o veículo</option>
-                    ${availableVehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
+                    ${manager.data.vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
                 </select>
                 <div id="fuel-form-fields"></div>
             </div>
-            `;
-        },
+        `,
         AdminPanel: () => `
             <div class="container slide-up">
                 <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>

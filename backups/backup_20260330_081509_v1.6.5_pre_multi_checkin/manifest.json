@@ -1,0 +1,18 @@
+{
+    "name": "Essencio - Controle de Frota",
+    "short_name": "Essencio",
+    "description": "Sistema de controle de abastecimento e uso de frota Essencio.",
+    "start_url": "./",
+    "display": "standalone",
+    "background_color": "#0f1117",
+    "theme_color": "#00bcc1",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

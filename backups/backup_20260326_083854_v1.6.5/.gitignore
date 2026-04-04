@@ -1,0 +1,12 @@
+# Local database and server files
+database.json
+server.py
+*.pyc
+__pycache__/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Agent/Brain files (if they were inside, but they are outside)
+.gemini/

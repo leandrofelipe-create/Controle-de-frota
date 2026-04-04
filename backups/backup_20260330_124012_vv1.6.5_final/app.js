@@ -22,7 +22,7 @@ if (!firebase.apps.length) {
 const db = firebase.database();
 
 const LOGO_URL = "https://www.essencio.com.br/wp-content/uploads/2024/05/Essencio_principal-2024-1-1024x225.png";
-const VERSION = '1.6.6';
+const VERSION = '1.6.5';
 
 class FleetManager {
     constructor() {
@@ -113,52 +113,6 @@ const App = {
 
     updateSyncStatus() {
         // Implementação visual se necessário
-    },
-
-    async captureAndShare(elementSelector, shareText) {
-        try {
-            const el = document.querySelector(elementSelector);
-            if (!el) return;
-            
-            // Ocultar botões temporariamente para o print
-            const btns = el.querySelectorAll('button');
-            const originalDisplays = [];
-            btns.forEach(b => {
-                originalDisplays.push(b.style.display);
-                b.style.display = 'none';
-            });
-            
-            const canvas = await html2canvas(el, { scale: 2 });
-            
-            // Restaurar botões
-            btns.forEach((b, i) => b.style.display = originalDisplays[i]);
-            
-            return new Promise((resolve) => {
-                canvas.toBlob(async (blob) => {
-                    if (!blob) return resolve();
-                    const file = new File([blob], "registro.png", { type: "image/png" });
-                    
-                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-                        try {
-                            await navigator.share({
-                                title: 'Controle de Frota',
-                                text: shareText,
-                                files: [file]
-                            });
-                        } catch(err) {
-                            console.log("Compartilhamento cancelado/falhou:", err);
-                        }
-                    } else {
-                        alert("Dispositivo não suporta envio de imagem direta. O WhatsApp abrirá apenas com o texto.");
-                        const waLink = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-                        window.open(waLink, '_blank');
-                    }
-                    resolve();
-                }, 'image/png');
-            });
-        } catch(e) {
-            console.error("Erro no print da tela:", e);
-        }
     },
 
     render(view, props = {}) {
@@ -291,7 +245,7 @@ const App = {
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 App.currentPhoto = canvas.toDataURL('image/jpeg', 0.7);
                 const preview = document.getElementById(previewId);
-                if (preview) preview.innerHTML = `<img src="${App.currentPhoto}" style="width:100%; height:auto; border-radius:8px">`;
+                if (preview) preview.innerHTML = `<img src="${App.currentPhoto}" style="width:100%; height:80px; object-fit:cover; border-radius:8px">`;
             };
             img.src = e.target.result;
         };
@@ -317,12 +271,6 @@ const App = {
             startLat: gps?.lat || null, startLng: gps?.lng || null 
         };
         await manager.saveData();
-        
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const vec = manager.data.vehicles.find(vec => vec.id == vId);
-        const msg = `🚗 Check-in: ${vec.name}\n👤 Condutor: ${d.name}\n📍 Saída: ${local}\n🧭 KM Inicial: ${val}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
@@ -332,13 +280,10 @@ const App = {
         const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
         const endVal = v.type === 'boat' ? (parseFloat(session.startVal) + ((new Date() - new Date(session.startTime)) / 3600000)).toFixed(2) : parseFloat(document.getElementById('end-val').value);
         
-        const localInput = document.getElementById('end-local');
-        const descInput = document.getElementById('end-desc');
-        const local = localInput ? localInput.value : "—";
-        const desc = descInput ? descInput.value : "—";
-
-        if (!App.currentPhoto || isNaN(endVal) || !local) return alert("Tire a foto e preencha todos os campos!");
+        if (!App.currentPhoto || isNaN(endVal)) return alert("Tire a foto e preencha o valor!");
         
+        const local = prompt("Local de Chegada (Devolução):") || "—";
+        const desc = prompt("Descreva a movimentação final (Opcional):") || "—";
         const gps = await App.getGPS();
         
         manager.data.usageLogs.push({ 
@@ -352,11 +297,6 @@ const App = {
         
         delete manager.data.activeSessions[App.localUser];
         await manager.saveData();
-
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const msg = `🛑 Check-out: ${v.name}\n👤 Condutor: ${d.name}\n📍 Chegada: ${local}\n🧭 KM Final: ${endVal}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
@@ -389,11 +329,6 @@ const App = {
         };
         
         await manager.saveData();
-        
-        const d = manager.data.drivers.find(drv => drv.id == App.localUser);
-        const msg = `🔄 Nova Movimentação: ${v.name}\n👤 Condutor: ${d.name}\n📍 Chegada: ${local}\n🧭 KM: ${endVal}`;
-        await App.captureAndShare('.container.slide-up', msg);
-
         App.currentPhoto = null;
         App.render(App.views.Dashboard);
     },
@@ -870,17 +805,10 @@ const App = {
         SegmentView: () => {
             const session = manager.data.activeSessions[App.localUser];
             const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
             return `
             <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Nova Movimentação</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Nova Movimentação</h1>
                 <p>Veículo: <strong>${v.name}</strong></p>
                 <div class="form-group"><label>KM / Horas Final (Trecho Concluído)</label><input type="number" id="seg-end-val"></div>
                 <div class="form-group"><label>Local de Chegada (É a sua nova Saída)</label><input type="text" id="seg-local" placeholder="Ex: Obra 2..."></div>
@@ -900,14 +828,8 @@ const App = {
             
             return `
             <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Check-in</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Check-in</h1>
                 <select id="vehicle-select" onchange="App.handleVehicleChange(this.value, 'checkin-fields')">
                     <option value="">Selecione o veículo</option>
                     ${availableVehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
@@ -919,26 +841,17 @@ const App = {
         CheckOutView: () => {
             const session = manager.data.activeSessions[App.localUser];
             const v = manager.data.vehicles.find(v => v.id == session.vehicleId);
-            const user = manager.data.drivers.find(d => d.id == App.localUser);
             return `
             <div class="container slide-up">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                    <div>
-                        <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)" style="margin-bottom: 10px;">← Voltar</button>
-                        <h1 style="margin: 0;">Check-out</h1>
-                        <p style="color: var(--accent); font-weight: 600; margin: 5px 0 0 0; font-size: 0.9rem;">Condutor: ${user.name}</p>
-                    </div>
-                    <img src="${LOGO_URL}" style="height: 40px; object-fit: contain;">
-                </div>
+                <button class="secondary btn-small" onclick="App.render(App.views.Dashboard)">← Voltar</button>
+                <h1>Check-out</h1>
                 <p>Veículo: <strong>${v.name}</strong></p>
                 ${v.type === 'car' ? '<div class="form-group"><label>KM Final</label><input type="number" id="end-val"></div>' : '<p>Horas calculadas automaticamente.</p>'}
-                <div class="form-group"><label>Local de Chegada (Devolução)</label><input type="text" id="end-local" placeholder="Ex: Sede, Garagem..."></div>
-                <div class="form-group"><label>Motivo / Observação</label><input type="text" id="end-desc" placeholder="Ex: Fim do expediente"></div>
                 <label class="photo-preview" id="photo-preview" style="cursor:pointer; display:flex;">
                     <input type="file" accept="image/*" capture="environment" style="display:none" onchange="App.handlePhotoUpload(event, 'photo-preview')">
                     <span id="photo-preview-text">📸 Tirar Foto Final</span>
                 </label>
-                <button class="danger" onclick="App.submitCheckOut()">Finalizar e Sincronizar</button>
+                <button onclick="App.submitCheckOut()">Finalizar e Sincronizar</button>
             </div>
         `},
         FuelView: () => {
